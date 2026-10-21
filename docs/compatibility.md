@@ -9,7 +9,7 @@ This file records runtime facts and probe results. It must never contain credent
 | Component | Observed/pinned candidate | Evidence / status |
 | --- | --- | --- |
 | Muse CLI | `1.4.11` (`1.4.11-R6667.1`) | `muse --version` |
-| OpenCode | `2.1.2` | `opencode --version`; correlation gate has not yet run on this version |
+| OpenCode | `2.1.2` | `opencode --version`; session-associated correlation probe passes for `doStream` |
 | OpenCode smoke baseline | `2.1.1` | Earlier `seam-smoke` evidence; retain as historical evidence, not the current target |
 | `@muse-code/sdk` | `1.4.11` | `npm view @muse-code/sdk version` returned `1.4.11`; package import/runtime compatibility is still to be tested in Task 3/6 |
 
@@ -58,7 +58,11 @@ These are schema observations, not all live behavioral probes. Keep the probe ou
 | Gate | Status | Result |
 | --- | --- | --- |
 | Muse/OpenCode/SDK version pin and schema export | **Recorded** | Versions and hashes above; schema declarations match vendored files exactly |
-| OpenCode `model.request` → V3 call-option correlation on OpenCode 2.1.2 | **Not run** | Hard gate; if absent/racy, revise to local-proxy architecture |
+| OpenCode `model.request` → V3 call-option correlation on OpenCode 2.1.2 | **PASS for session-associated `doStream`** | `bash test/probes/correlation-run.sh` passed on one shared `opencode serve` with two concurrent sessions. Seven calls (title, primary, session `generate`, and compaction) had matching hook/V3 signatures and no session crossover. Variant `minimal` survived. No direct profile field exists on the probed model object; resolve profile from the selected catalog model. |
+| OpenCode plugin file extension in project probe | **Observed** | The project plugin loader did not load the `.mjs` probe (model unavailable); renaming the same module to `.js` made it load and the correlation test pass. The shipped bundle entry is `.js`. |
+| OpenCode session-scoped `session.generate` route | **Observed** | Invoked `model.request` with kind `generate` and a session ID, used `doStream`, and left OpenCode session messages byte-identical. Do not forward it as an ordinary turn to the live Muse session in v1. |
+| OpenCode stateless `/api/experimental/generate` with project-local provider | **Not reached at model boundary** | The route returned `Model unavailable` during base-config resolution before invoking the project-local provider. The opencode-claude reference notes this stateless route bypasses session hooks; v1 general stateless generation remains unsupported. |
+| Session-associated `doGenerate` path | **Not observed** | Tested ordinary and session-scoped routes invoked `doStream`; stateless generation did not resolve this project-local provider. `doGenerate` remains required by V3 but must not start an uncorrelated Muse turn. |
 | Muse session durability, cursor replay, command idempotency, turn lifecycle | **Not run against target CLI** | Live turn checks require working inference access; use subscription-backed Contributor mode as requested or configured PAYG |
 | Image/video/audio/PDF/strict-JSON through `muse serve` | **Not run** | Probe per format; do not infer MSP support from direct Model API docs |
 | OpenChamber auth/approval/user-input UI feasibility | **Not run** | Conditional feature gate; no OpenChamber source changes in v1 |

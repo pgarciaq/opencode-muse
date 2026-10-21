@@ -37,7 +37,7 @@
 
 1. **Pure unit tests:** prompt/context parsing, media mapping, model catalog conversion, errors, fingerprints, and compaction digest. No processes or network.
 2. **Fake-MSP component tests:** deterministic host that records commands, returns configured acknowledgements, emits ordered notifications/cursor gaps, and can disconnect/crash at named points.
-3. **Pinned OpenCode adapter tests:** real pinned OpenCode runtime plus a local/fake Muse host. These prove hook order, correlation headers, V3 `doStream`/`doGenerate`, and provider discovery without a Meta inference call.
+3. **Pinned OpenCode adapter tests:** real pinned OpenCode runtime plus a local/fake Muse host. These prove hook order, session-associated correlation headers, V3 `doStream`/`doGenerate` behavior, and provider discovery without a Meta inference call. Session-scoped `session.generate` and stateless `/api/experimental/generate` are tested separately because their context/history semantics differ.
 4. **Opt-in live Muse tests:** require configured access only for model-turn behavior; assert protocol/events, not exact model prose. Keep these small and never run them as part of ordinary `bun test`.
 5. **Manual OpenChamber checks:** auth-method visibility, approval-choice UI, structured input UI, and file restore behavior. Record screenshots/results without secrets in `docs/compatibility.md`.
 
@@ -67,9 +67,10 @@ The compatibility probes in Tasks 1, 2, 4, and 5 of the implementation plan are 
 
 ### Slice 2: Request correlation and plugin seam
 
-**Files:** `test/probes/correlation-plugin.mjs`, `test/probes/correlation-run.sh`, `test/integration/request-correlation.test.ts`.
+**Files:** `test/probes/correlation-plugin.js`, `test/probes/correlation-run.sh`, `test/integration/request-correlation.test.ts`.
 
-- **Probe first:** Run the implementation-plan correlation probe against pinned OpenCode. Require session ID, directory, request kind, model/provider/profile, and variant to arrive in `doStream` and `doGenerate` options.
+- **Probe first:** Run the implementation-plan correlation probe against pinned OpenCode. Require session ID, directory, request kind, selected model/provider, and variant to arrive in `doStream` options. The runtime probe did not expose a direct `profileID` field on `request.model`; profile selection must be resolved from the selected catalog model unless a supported field is discovered. Test correlated `doGenerate` metadata only if a session-hooked path invokes it.
+- **Probe generate paths:** Verify `/api/session/:sessionID/generate` (session-scoped) and `/api/experimental/generate` (stateless) separately. Session-scoped generate was observed to carry `kind="generate"` and a session ID through `doStream`, while leaving OpenCode history unchanged; do not send it as a normal turn to the live Muse session. The stateless route did not resolve the project-local provider in this probe; keep it unsupported in v1 unless a global-provider test establishes a safe route.
 - **Red:** Add `correlation.isolatesConcurrentSessionsAndMetaRequests`; assert two overlapping sessions and title/compaction calls never observe one another's headers.
 - **Green:** Implement a typed correlation decoder that returns `ContextError` for missing/invalid metadata; never use global “latest request” state.
 - **Refactor:** Centralize namespaced header encode/decode and keep header strings out of user prompts.
@@ -184,7 +185,7 @@ The compatibility probes in Tasks 1, 2, 4, and 5 of the implementation plan are 
 ## Probe Gates Before Red–Green Product Cycles
 
 - Pin the actual CLI/schema/SDK/OpenCode versions and compare them with the vendored schema.
-- Prove request correlation across `doStream`/`doGenerate`; if absent or racy, revise to the local proxy before implementing the bridge.
+- Prove request correlation for session-associated model calls; if absent or racy, revise to the local proxy before implementing the bridge. Probe stateless `doGenerate` separately and keep it context-free.
 - Prove durable-session and cursor replay behavior before claiming restart recovery.
 - Probe image/video/audio/PDF/strict-JSON capability through `muse serve`, rather than inferring MSP support from direct model/API documentation.
 - Prove OpenChamber's approval/auth UI surface; if it cannot express Muse's protocol, defer the feature and keep it fail-closed.

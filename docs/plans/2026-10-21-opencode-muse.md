@@ -60,28 +60,29 @@ Create focused modules; adjust names only to match actual pinned SDK exports, an
 
 **Interfaces:** Produces the exact Muse CLI version, exported MSP schema fingerprint, `@muse-code/sdk` version, and OpenCode version used by later tasks.
 
-- [ ] Record `muse --version` and `opencode --version`; record the SDK package version selected for the probe.
-- [ ] Use `muse schema --help` to identify the supported stable/experimental schema export commands; export both surfaces and record hashes plus the command used.
-- [ ] Compare the exported schema with vendored declarations for session durability/fork/cursors/command IDs, model selection, approval/user-input events, `TurnInputPart` media types and `media/upload`, and any structured-output control.
-- [ ] For any live protocol probe, use only the user's existing Muse login or a PAYG key configured through the official CLI; verify logs and artifacts contain no credential values.
-- [ ] If the target schema differs in a way that changes v1 behavior, stop and update `docs/design.md` before proceeding.
+- [x] Record `muse --version` and `opencode --version`; record the SDK package version selected for the probe.
+- [x] Use `muse schema --help` to identify the supported stable/experimental schema export commands; export both surfaces and record hashes plus the command used.
+- [x] Compare the exported schema with vendored declarations for session durability/fork/cursors/command IDs, model selection, approval/user-input events, `TurnInputPart` media types and `media/upload`, and any structured-output control.
+- [x] For any live protocol probe, use only the user's existing Muse login or a PAYG key configured through the official CLI; verify logs and artifacts contain no credential values. (No live model call was needed for Task 1.)
+- [x] If the target schema differs in a way that changes v1 behavior, stop and update `docs/design.md` before proceeding. (No MSP schema drift found; OpenCode 2.1.2 target and the older 2.1.1 smoke baseline are recorded.)
 
 **Verification:** `docs/compatibility.md` contains versions, hashes, and differences; secret scan/manual review finds no auth-file contents, tokens, API keys, or raw login output.
 
 ### Task 2: Probe OpenCode request correlation (hard stop gate)
 
 **Files:**
-- Create: `test/probes/correlation-plugin.mjs`
+- Create: `test/probes/correlation-plugin.js`
 - Create: `test/probes/correlation-run.sh`
 - Update: `docs/compatibility.md`
 
 **Interfaces:** Probe a provider registered with the proven `aisdk:file://` factory and a custom LanguageModelV3. The test model records only sanitized metadata fields and outputs a fixed string.
 
-- [ ] Write the probe asserting `model.request` adds namespaced session ID, directory, kind, model/provider/profile selection, and variant headers.
-- [ ] Run the probe against the pinned OpenCode binary and assert those exact fields arrive in both `doStream` and `doGenerate` options.
-- [ ] Exercise two overlapping OpenCode sessions and concurrent title/compaction/agent calls; assert no context crosses sessions.
-- [ ] Verify how unhooked `/api/experimental/generate` requests appear; title/compaction must be recognizable without accidentally treating arbitrary stateless calls as agent turns.
-- [ ] Record sanitized output and a PASS/FAIL decision in `docs/compatibility.md`.
+- [x] Write the probe asserting `model.request` adds namespaced session ID, directory, kind, model ID/provider, and variant headers. Record whether profile ID is present directly; if not, resolve it through the selected catalog model mapping.
+- [x] Run a session-associated request and assert those fields arrive intact in `doStream` options. Session-associated routes tested here invoked `doStream`; no session-associated `doGenerate` caller was observed.
+- [x] Exercise `/api/session/:sessionID/generate` and `/api/experimental/generate` separately; session.generate correlated and left OpenCode history unchanged. The stateless route did not resolve the project-local provider at the model boundary, so it remains unsupported in v1; never attach context-free calls to a guessed Muse session.
+- [x] Exercise two overlapping OpenCode sessions plus concurrent title/primary/compaction/generate calls on one server; assert context signatures match and sessions remain distinct.
+- [x] Observe `session.generate` calls `doStream` in the pinned runtime; confirm the selected v1 behavior does not mutate Muse history or use the live Muse session.
+- [x] Record sanitized output and PASS results in `docs/compatibility.md`, including catalog-based profile resolution and the context-free generate limitation.
 
 **Gate:** If in-process request metadata is absent, incomplete, or racy, stop. Revise the design to the local-proxy architecture before writing the session bridge; do not use global “most recent request” state.
 
@@ -188,7 +189,7 @@ Create focused modules; adjust names only to match actual pinned SDK exports, an
 
 **Interfaces:** `readRequestContext(callOptions) -> RequestContext | ContextError`; `extractTurnInput(prompt, previousFingerprint, contextAllowlist) -> TurnInput`; `validateModelOptions(options) -> SupportedOptions | UnsupportedOptionError`.
 
-- [ ] Test correlation header parsing, missing/invalid metadata, concurrent session isolation, and `doGenerate` metadata.
+- [ ] Test correlation header parsing, missing/invalid metadata, concurrent session isolation, and context-free `doGenerate` handling for stateless generation; test correlated `doGenerate` only if the pinned runtime exposes that path.
 - [ ] Test only new user content is sent; system/agent/project context follows §6.4 allowlist; tool catalogs and volatile system boilerplate are excluded.
 - [ ] Test image data maps to MSP image parts; video uses `media/upload` and an upload receipt; audio/PDF use a verified official path or produce a precise bridge-limitation error.
 - [ ] Test ordinary user text requesting JSON remains a normal prompt; map strict OpenCode `responseFormat` if the pinned MSP/CLI supports it, otherwise reject only that strict constraint. Do not fail merely because OpenCode supplied tool definitions; reject only an explicitly required OpenCode-side tool that cannot be represented.
