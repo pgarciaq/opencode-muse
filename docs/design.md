@@ -1,6 +1,6 @@
 # opencode-muse — Design
 
-**Status:** draft v1.1 for review · 2026-10-21 (v1.0 + adversarial-review fixes C1–C4, W1–W8, N1–N11)
+**Status:** draft v1.2 for review · 2026-10-21 (full consistency review; no implementation started)
 **Decision basis:** spike issue [#1](https://github.com/pgarciaq/opencode-muse/issues/1) (probe record: Q1 verdict, close-out, smoke-test comment). Companion context: TheStreamCode/opencode-muse-auth#12 (compliance concern that motivates this design).
 
 ---
@@ -25,7 +25,7 @@
 
 ## 3. Verified runtime foundations
 
-Everything in this design builds on live evidence (see #1 for probes):
+Evidence below includes the live spike/smoke test, source inspection, and vendored MSP declarations. Treat schema-derived details as provisional until checked against the pinned CLI version (see §14).
 
 | Foundation | Evidence |
 | --- | --- |
@@ -41,6 +41,13 @@ Everything in this design builds on live evidence (see #1 for probes):
 | OpenCode plugin context offers `permission.create`/`reply` (`allow\|deny\|ask`) and `session.synthetic` | Type inspection (#1 close-out) |
 | OpenCode removes providers with **zero models** from `provider.list()` (hides them in OpenChamber) | opencode-cursor `fallback-catalog.ts` (comment) |
 | Stable-MSP surface audit: `userInput/*` family, `session/rename`, `session/sideChat`, `turn/retryScheduled`/`retracted`/`unqueued` exist; `session/promptHint` is **experimental-only** and a read-only table query; no `session/delete` exists | Vendored `msp.d.ts` inspection (stable + experimental bundles) |
+| `session/fork` without `cutPoint` copies all completed turns; explicit `cutPoint.lastTurnId` is needed to cut history | Vendored stable schema; re-verify against the pinned Muse CLI schema before implementation |
+| `session/tokenUsage.cumulative` is a running session total; `turn/completed.usage` is the turn aggregate | Vendored stable schema; re-verify against the pinned Muse CLI schema before implementation |
+| `turn/unqueued` means a queued turn was reclaimed before launch; `turn/started` signals launch | Vendored stable schema; re-verify against the pinned Muse CLI schema before implementation |
+| `session/sideChat` requires a source session; its new side session opens empty | Vendored stable schema; not a stateless generation API |
+| `view/subscribe` can replay notifications after an observed cursor; `view/gap` signals a missed range | Vendored stable schema; re-verify against the pinned Muse CLI schema before implementation |
+| State-changing MSP commands carry UUIDv7 `commandId`s; turn/start and approval decisions echo IDs/turn state | Vendored stable schema; design requires durable idempotency handling |
+| A session can be durable or ephemeral | Vendored stable schema; restart-resume must verify durable mode at runtime |
 
 ## 4. Architecture overview
 
@@ -60,7 +67,7 @@ OpenChamber ── spawns ──> opencode serve (v2.1.1)
                    ▼                        ▼
           muse session registry      MSP client (@muse-code/sdk)
           (OpenCode session ↔        spawns `muse serve --provider meta`
-           muse session map)         one host per active OpenCode session
+           muse session map)         one host per OpenCode session in v1
                                       session/start · turn/start · item/* ·
                                       approval/* · turn/cancel …
 ```
@@ -68,7 +75,7 @@ OpenChamber ── spawns ──> opencode serve (v2.1.1)
 One architecture, two planes:
 
 - **Model plane** (per model call): `LanguageModelV3` ⇄ MSP turn lifecycle. Stateless from OpenCode's perspective; muse holds the conversation.
-- **Session plane** (per session lifecycle): mapping, host pooling, resume, approvals.
+- **Session plane** (per session lifecycle): mapping, one host per OpenCode session, cursor-based resume, approvals.
 
 ## 5. Plugin surface and registration
 
@@ -129,22 +136,24 @@ The dynamic plugin expects a `model()`-less factory that yields an SDK host; our
 
 ## 6. The language bridge — `LanguageModelV3` over MSP
 
-One bridge object per (model, variant). Implements `doStream` only (doGenerate throws; OpenCode streams everything).
+One bridge object per selected model/variant, with session-scoped routing metadata from the correlation carrier. Implement both `doStream` and `doGenerate` through a shared Muse transaction and event collector; do not assume OpenCode streams every request.
 
-**Request correlation (Phase-1 verification item — first probe).** `doStream` receives prompt parts and tool definitions, nothing that identifies the calling OpenCode session. Everything below (kind routing, session mapping, `workspaceRoot`) depends on a correlation carrier: the `session.hook("model.request")` layer stamps each request with `{sessionID, directory, kind}` (opencode-claude's precedent carries these as request headers through its local proxy), and the bridge reads them back from the `doStream` call options. Whether the in-process V3 seam preserves such headers/options is **not yet verified** — the smoke test's echo model needed no session context. If no carrier exists, the fallback is the opencode-claude local-proxy shape, where HTTP headers carry it naturally.
+**Request correlation (hard Phase-1 gate).** `doStream` gets the prompt and tool definitions, not a typed OpenCode session context. The `session.hook("model.request")` layer will stamp namespaced headers with `{sessionID, directory, kind, modelID, providerID/profileID, variant}`; the V3 bridge must read them from `doStream` options. This is **unverified**: the echo smoke test needed no session context, and V3 `headers` are documented as HTTP-provider-oriented. First build a probe that demonstrates these exact values arriving intact on the in-process seam. If it fails, stop and use the local-proxy architecture, where headers are explicit. Never infer the active session by “most recent request” or a global mutable variable; concurrent title/compaction/agent calls make that racy.
+
+Stateless `/api/experimental/generate` is a special case: OpenCode's session hook may not run. V1 does not claim general stateless generation support (§6.1); title/compaction are recognized by tested prompt-shape detection when hook metadata is absent.
 
 ### 6.1 Request-kind routing (decided)
 
-OpenCode makes model calls of different kinds. The `session.hook("model.request")` input carries `kind`; fall back to system-prompt sniffing (opencode-claude's heuristics) if `kind` is missing in practice.
+OpenCode makes model calls of different kinds. Use `kind` from the session hook when it ran; for unhooked requests, use narrow, tested prompt-shape detection for title/compaction. Unknown stateless requests are not silently treated as agent turns.
 
 | OpenCode request kind | Handling | Muse calls |
 | --- | --- | --- |
-| `title` (thread title) | **Local, zero calls.** Title = first user message (from the request's message list — title requests carry the conversation prefix; verify payload shape in Phase 1) truncated to ~50 chars. Muse context is authoritative, so title quality is cosmetic. | none |
-| `compaction` (summary) | **Local, zero calls.** Summarize from the messages carried by the compaction request itself (self-contained — no mirrored store needed); must not emit tool calls (OpenCode rejects them here). | none |
-| `generate` (stateless one-shot, `/api/experimental/generate`) | **Scratch muse session, never the live one** (opencode-claude namespaces the same way). `session/sideChat` is the stable-MSP candidate; verify semantics in Phase 1. | one scratch turn |
-| default (agent turn) | **Muse turn** on the mapped muse session (§7) | `turn/start` (+ `turn/steer` if queued) |
+| `title` (thread title) | **Local, zero model calls.** Derive a short title from the first user message only if present; otherwise return a safe generic title. Verify request shape; never route it into the live Muse session. | none |
+| `compaction` (summary) | **Local, zero model calls.** Produce a bounded deterministic summary from the messages carried by the compaction request itself; no transcript mirror required. Must not emit tool calls. | none |
+| `generate` (stateless one-shot, `/api/experimental/generate`) | **Not supported in v1**, except recognized title/compaction requests. Return a clear unsupported-operation error for other stateless requests. Do not use `session/sideChat`: it requires a source session and is not a stateless generation API. | none |
+| default (agent turn) | **Muse turn** on the mapped muse session (§7); serialize per session and honor `turn/start.disposition` | `turn/start` (or an explicit, user-originated `turn/steer`) |
 
-Rationale: the ~13-model-calls/turn multiplier (§14) makes every muse round trip expensive; title/compaction carry no value from muse because muse owns the conversation context anyway.
+Rationale: a Muse turn generated about 13 internal model calls in one probe (§14); that is not a 13× token-cost claim, but it makes avoidable Muse turns costly. Title/compaction do not benefit from Muse's context because Muse owns the authoritative conversation.
 
 **What "local" means (compaction).** The summary is written by plugin code running inside the `opencode` process — deterministic, zero model calls of any kind (no muse turn, no other OpenCode model). It is entirely separate from muse's own context management (`session/compact`), which muse applies to its authoritative session independently and is untouched by this path.
 
@@ -152,63 +161,73 @@ Rationale: the ~13-model-calls/turn multiplier (§14) makes every muse round tri
 
 | Option | Outcome |
 | --- | --- |
-| Forward to the live muse session | Pays the ~13× multiplier; the summarization prompt and its answer land in muse's history, polluting the real conversation |
-| Route to a scratch muse session | Real LLM summary, no pollution — but still pays the multiplier every time, for output muse will never read |
+| Forward to the live muse session | The summarization prompt and answer land in Muse's history, polluting the real conversation and consuming an unnecessary Muse turn |
+| Route to a scratch muse session | Real LLM summary, no pollution — but consumes a Muse turn for output Muse will never read |
 | Fail the request | OpenCode's compaction step errors (surfaced to the user, possibly retried) and its transcript grows unbounded |
 | **Answer locally (chosen)** | Step succeeds, costs nothing, no side effects anywhere |
 
 **What the local summary is for** — bookkeeping for the projection only: (1) OpenCode's compaction step completes cleanly; (2) the transcript OpenCode/OpenChamber holds and renders stays bounded in long sessions; (3) portability — if a session is later moved to another provider, that provider *does* receive the transcript; (4) OpenCode features that read session history (subagent flows, export) operate on the trimmed transcript. Heuristic quality is acceptable precisely because the real context lives in muse.
 
-**Compaction must not read as rewind (§7).** Both compaction and rewind shrink OpenCode's prior-message history, so §7's rewind detector would otherwise fork the muse session on **every compaction** — destroying the context it exists to protect, on long sessions where compaction fires automatically. Because the bridge *authors* the summary, it can do two things: (1) embed a recognizable marker in the summary text (stable prefix), and (2) update the session registry's fingerprint ledger at the moment it serves the compaction request. Rewind detection then distinguishes the cases: shorter history **with our marker / a ledger-anticipated compaction** → continue the same muse session; shorter history with a diverging tail and no anticipation → rewind/fork.
+**V1 compaction algorithm.** Do not call this a semantic synthesis. Emit a labelled, deterministic bounded transcript digest: preserve the initial user request and the most recent complete user/assistant exchanges; include a constraint or decision only when its words are actually retained, never infer one. Omit tool definitions and repetitive system boilerplate. Truncate at message/part boundaries where possible and include an explicit truncation note. Derive a conservative output-size ceiling from `maxOutputTokens` with a tested safety margin; if even the minimum digest cannot fit, return a clear compaction error rather than unbounded output. This is intentionally lower quality than an LLM summary, so test long, tool-heavy, multilingual and repeated-compaction histories and label it as a transcript digest in the output.
+
+**Compaction must not read as rewind (§7).** After the complete compaction response succeeds, persist a candidate fingerprint of the exact summary output—never the raw summary text. Do not advance the committed fingerprint ledger merely because the plugin began returning a response. On the next model request, confirm that output fingerprint appears in the transcript, then commit the new fingerprint/compaction boundary. If the response was cancelled, not persisted, or the next transcript does not match, do not suppress rewind detection. Compare the retained sequence of message fingerprints (not only message count) so edits at the same count are detected. A visible text marker may aid diagnosis but is not authoritative; user-editable text can imitate it.
 
 ### 6.2 Touching muse: the turn protocol
 
 For an agent-kind call the bridge:
 
-1. **Resolve the muse session** for the correlated OpenCode session (§6 correlation; §7). On the first turn of a session: `session/start` (workspaceRoot = the session's directory, approvalMode default) followed by `session/rename` (`opencode: …`, §7 hygiene).
-2. Map the **new** user content only (muse owns prior context — advise: never replay full history per turn):
-   - text parts → MSP text input items,
-   - file/skill/system additions from OpenCode that must reach muse go in as a **plain text preamble** (MVP). `session/promptHint` is *not* a candidate: schema-verified as experimental-only and a read-only model-facing table query, not a context-injection channel,
-   - image parts → **stripped in MVP with a narrated warning** (synthetic part: "image dropped — muse image input unverified"), so one accidental screenshot doesn't kill the request; the turn proceeds on text. Hard-reject revisited if the build-time probe (§14) shows muse can't consume them usefully.
-3. `turn/start` and translate the notification stream into V3 stream parts:
+1. **Resolve the muse session** for the correlated OpenCode session (§6 correlation; §7). On first use, call `session/start` with the selected `providerId`, `modelId`, `workspaceRoot` and `approvalMode: "onRequest"` (if confirmed by the pinned CLI schema), then name it with `session/rename` using a non-sensitive label such as `opencode-muse <short session id>`—not the user's first prompt. Every state-changing MSP command gets a persisted UUIDv7 `commandId`; retries reuse the same ID.
+2. Apply the OpenCode selection before the turn: if it differs from the Muse session selection, call `session/setModel` with the full selected provider/model/profile and a `commandId`. `session/start` has no profile selection field in the pinned schema, so apply a non-default profile with `session/setModel` immediately after start. Map the selected effort variant to `turn/start.reasoningEffort` (per-turn override); do not change the standing session default unless the user explicitly changes that default.
+3. Build the input from the new user request plus the explicit host-context allowlist in §6.4. Never replay the entire OpenCode transcript as a new Muse turn.
+   - user text → MSP text input items; file paths remain text unless file content is explicitly present in the allowed prompt context. V1 has no implicit file-upload or file-content injection path;
+   - system/agent/project context → only the curated, labelled context defined in §6.4; `session/promptHint` is not a context channel;
+   - image, audio, video, or other non-text parts → **fail before starting the Muse turn with a clear unsupported-input error in v1**. Do not silently discard essential input. MSP's image/video upload parts are not implemented by this bridge; OpenCode file paths remain text unless their contents are explicitly present in the allowed prompt context.
+4. Subscribe to the session view with `view/subscribe` after start/resume. Persist the returned/last-seen view cursor and consume replay/live notifications in cursor order; recover gaps/reconnects via the MSP view API (§7). Do not assume item notifications arrive without a view subscription.
+5. Call `turn/start`, inspect its `disposition` and authoritative `turnId`, then translate the view stream into V3 stream parts:
 
 | Muse event | Bridge → V3 part |
 | --- | --- |
+| Stream begins | `stream-start {warnings:[]}` |
 | `item/started` (assistant text) | `text-start {id}` |
 | `item/delta` (text) | `text-delta {id, delta}` |
+| `item/completed` (assistant text) | `text-end {id}` |
 | reasoning item deltas (if muse emits them) | `reasoning-start/delta/end` (build-time probe) |
 | `item/…` (tool/file events) | **not** model output → narration path (§9) |
-| `session/tokenUsage` (notification) | collected for the finish part — **summed across the turn's internal calls** (final-event-wins would undercount the ~13-call multiplier) |
-| `turn/completed` terminal `completed` | `finish { finishReason:{unified:"stop"}, usage }` |
-| `turn/completed` terminal `failed` | `finish { finishReason:{unified:"error"} }` (+ OpenCode error surface §10) |
-| `turn/completed` terminal `cancelled`/`interrupted` | `finish { finishReason:{unified:"other"} }` |
+| `session/tokenUsage` (notification) | cumulative member is a session snapshot—never sum snapshots. For provisional foreground usage, count each per-call `usage` at most once keyed by turn/view cursor; final turn aggregate comes from `turn/completed.usage` |
+| `turn/completed` terminal `completed` | `finish { finishReason:{unified:"stop"}, usage }`, using this event's per-turn aggregate usage |
+| `turn/completed` terminal `failed` | if streaming already began, emit the V3 `{type:"error", error}` part with a safe typed error and close; if failure precedes stream creation, reject `doStream`/`doGenerate`. Preserve Muse `error.kind` and `retryable`; map only verified billing/auth failures to actionable UI text (§11) |
+| `turn/completed` terminal `cancelled` | `finish { finishReason:{unified:"other"} }`; unknown future terminal values are surfaced without guessing |
 | `turn/retryScheduled` / `turn/modelRetryScheduled` | keep the stream open (the turn is still in flight); narrate a retry note |
-| `turn/unqueued` | narrate (a queued turn began running) |
+| `turn/started` | mark the accepted turn as running; match by returned `turnId` |
+| `turn/unqueued` | the queued turn was reclaimed before launch; resolve that OpenCode request as cancelled/retracted, not as started |
 | `turn/retracted` | end the stream with `finish { finishReason:{unified:"other"} }` |
-| `turn/foregroundCompleted` | ignore in MVP (semantics probe) |
+| `turn/foregroundCompleted` | finish the OpenCode V3 stream here (foreground answer is ready); keep the Muse view monitor, host, and workspace lock until `turn/completed`. Report usage known at foreground completion; reconcile final aggregate usage/terminal status in the registry. Verify this event's actual behavior before implementation. |
 
-Wire-format facts verified in the smoke test (must hold for all emitted parts): `finishReason` is the **object form** (`{unified:"stop"}`) — string literals fail OpenCode's internal schema; `usage` uses **flat number keys** (`inputTokens`, `outputTokens`, `totalTokens`, `reasoningTokens`) — not the nested V3-spec shape.
+If `turn/foregroundCompleted` already closed the OpenCode stream, a later `turn/completed` is session-monitor state only; never emit a second V3 finish. OpenCode's per-call usage may therefore be provisional when Muse continues background work. Keep final Muse aggregate usage in plugin telemetry/session state; do not claim OpenCode's completed-call usage is final in that case.
 
-4. **Abort/OpenCode cancel:** the `doStream` abortSignal maps to `turn/cancel` (vs `turn/interrupt`/`turn/unqueue` — disambiguate semantics in Phase 1); if muse got stuck on an approval (§10), the parked turn is closed via the host pool reaper instead (opencode-claude's lesson: an abort never reaches a turn with no open HTTP request).
+Wire-format facts verified in the smoke test (must hold for all emitted parts): `finishReason` is the **object form** (`{unified:"stop"}`) — string literals fail OpenCode's internal schema; `usage` uses **flat number keys** (`inputTokens`, `outputTokens`, `totalTokens`, `reasoningTokens`) — not the nested V3-spec shape. The V3 adapter must implement both `doStream` and `doGenerate` through the same Muse transaction/collector, unless a Phase-1 probe proves a supported OpenCode path never calls `doGenerate`; no unexplained throw is acceptable.
+
+6. **Abort/OpenCode cancel:** map the abortSignal to the appropriate Muse operation (`turn/cancel` or `turn/interrupt`) using the explicit active `turnId`; distinguish reclaiming a queued turn via `turn/unqueue`. Probe terminal/event ordering. A pending approval is resolved or the exact Muse turn is interrupted; do not kill a host that might own another session.
 
 ### 6.3 “Suppression” invariant (test)
 
-The bridge never emits `tool-input-start`/`tool-call` parts. OpenCode's tools stay registered and are even forwarded into `doStream` params — they are ignored by construction. Test in CI once muse is live: a full agent turn must generate **zero** OpenCode tool calls and **zero** OpenCode permission prompts for tools.
+The bridge never emits `tool-input-start`/`tool-call` parts. OpenCode's tools stay registered and are even forwarded into `doStream` params — they are ignored by construction. If a request requires a tool (`toolChoice` is forced) or requires JSON/structured output that the Muse turn cannot guarantee, fail clearly rather than returning plain text as if the constraint were met. Ordinary sampling settings not represented by Muse are not promised; document which are ignored. Test in CI once muse is live: a full agent turn must generate **zero** OpenCode tool calls and **zero** OpenCode permission prompts for tools.
+
+### 6.4 OpenCode context contract
+
+Do not forward OpenCode's entire system prompt or tool catalog: it can describe tools that Muse cannot call and may conflict with Muse's own agent instructions. Do not silently discard host-specific instructions either. V1 forwards the new user request and explicitly referenced text/files, plus a curated, clearly labelled preamble containing the selected OpenCode agent/task instructions and host-only context that Muse cannot discover from the workspace. Muse runs with the OpenCode session's workspace root and is expected to load workspace rules itself where supported; do not duplicate those rules blindly. Do not claim OpenCode tool access. Role/instruction boundaries and ordering of this preamble must be tested against Muse's prompt handling; if the selected OpenCode agent cannot be represented safely, report that agent mode as unsupported rather than silently changing its behavior.
 
 ## 7. Session management
 
-**Registry.** `session-store` (opencode-claude pattern): OpenCode sessionID → `{ museSessionID, hostID, workspaceFingerprint, rev }`. OpenCode sessions are the user-facing keys; muse sessions are durable in the user's muse home. **The registry itself persists** (JSON in the plugin's data dir, keyed by OpenCode sessionID + workspace fingerprint), loaded and reconciled at plugin startup — otherwise an OpenCode restart orphans every durable muse session and silently starts fresh, defeating the resume path below. Reconciliation drops entries whose muse session no longer resumes.
+**Registry.** `session-store` (opencode-claude pattern): OpenCode sessionID → `{ museSessionID, hostID, workspaceFingerprint, rev, transcriptFingerprints, compactionCandidates, viewCursor, activeTurnId, pendingCommands }`. Fingerprint the ordered visible user/assistant transcript by role, part type, and normalized-content hash; exclude volatile system boilerplate, tool definitions, and request settings. Keep hashes and message/turn boundary references only, never prompt text. OpenCode sessions are the user-facing keys; Muse sessions are durable in the user's Muse home. The versioned registry persists in the OpenCode user data/state directory, with restrictive permissions, atomic replace, corruption recovery, and a single-writer lock. Key by OpenCode session ID plus canonical workspace fingerprint. Persist only mapping/recovery metadata—not prompts, transcripts, credentials, or raw CLI output. Define platform paths and multi-server locking before implementation; reconcile stale entries at startup.
 
-**Host pool.** One `muse serve` child per *active* OpenCode session (bridge-pool pattern):
-- spawn lazily on first muse turn of the session;
-- reap after an idle TTL; also close on `session.execution.interrupted/failed` events (the clean-up opencode-claude had to add);
-- a host owns 1..N muse sessions but serves one connection (MSP is client-per-stdio-process).
+**Host model (v1).** One `muse serve` child and one MSP connection per OpenCode session; that host owns that session's Muse session only. Spawn lazily on first Muse turn. Reap only when no turn, approval, user-input request, or replay is pending; also handle OpenCode interruption/failure events. This deliberately rejects a shared 1..N-session host pool in v1, so reaping one session cannot disrupt another. Set and test a bounded idle TTL and process-exit cleanup.
 
-**Resume.** Muse sessions survive CLI restarts (`session/resume` returns inline history). The plugin resumes instead of starting fresh whenever the registry has a muse session id and the workspace fingerprint matches.
+**Resume and event recovery.** Before relying on restart recovery, verify that `muse serve` creates durable sessions (inspect the returned session durability); an ephemeral session cannot satisfy this guarantee. On startup, load/reconcile registry entries; resume the Muse session only when the workspace fingerprint matches and the session is durable. Restore the persisted active command/turn state, call `session/resume`, then `view/subscribe` after the last persisted cursor to replay missed events. Persist cursor advances atomically. On `view/gap`, use the schema-defined page/recovery path and reconcile the turn before continuing. Persist command IDs and request fingerprints, not prompt bodies. Retry only when the exact request payload can be deterministically reconstructed and the same `commandId` is reused. If acceptance/completion remains ambiguous, never automatically replay a potentially side-effecting turn: surface a recovery error and require user choice.
 
-**Session naming & hygiene.** MSP has no `session/delete`, so abandoned/forked muse sessions accumulate in the user's muse home and will surface in `muse resume`. Name every plugin-created muse session at start via `session/rename` (`opencode: <session title>`) so they are identifiable and filterable. Accepted externality for v1; revisit if muse grows a prune surface.
+**Session naming & hygiene.** MSP has no `session/delete`, so abandoned/forked Muse sessions accumulate in the user's Muse home and may surface in `muse resume`. Name every plugin-created session via `session/rename` with a non-sensitive label (`opencode-muse <short session id>`), never the user's prompt or project path. Accepted externality for v1; revisit if Muse grows a prune surface.
 
-**Rewind / divergent history (decided).** *Rewind* is the OpenCode/OpenChamber UI action that edits conversation history: the user picks an earlier point in the session and drops everything after it, then continues from there (`git reset` for the transcript). Session *fork* is the same idea keeping both branches. In a vanilla OpenCode setup this is trivial — OpenCode truncates its transcript and the next model call simply sends the shorter history. Here it is not, because the design has **two sources of truth**:
+**Rewind / divergent history.** *Rewind* is the OpenCode/OpenChamber UI action that drops conversation history after a chosen point; fork keeps both branches. OpenCode truncates its transcript, while Muse still remembers the later turns. The bridge therefore keeps an ordered mapping from confirmed OpenCode agent-turn boundaries to Muse `turnId`s, plus sequence fingerprints and committed compaction boundaries.
 
 ```
 user rewinds to message #3
@@ -216,86 +235,95 @@ user rewinds to message #3
         muse session:         1 2 3 4 5 ...            ← still remembers everything
 ```
 
-The bridge only ever sends *new* user content to muse, so without intervention muse would keep reasoning from the discarded turns — the rewind would silently do nothing from the model's side. OpenCode-side history edits (rewind, fork) never mutate muse's session; the bridge is session-authoritative and never re-replays old context into the muse session after the first turn.
-- **Detection:** compare the incoming prompt's prior-message fingerprint with the registry's (`rev` counter). A backwards move is rewind/fork **only if not anticipated by a compaction we served** (§6.1's ledger update + summary marker) — compaction also shrinks the history but must continue the same muse session.
-- **Policy:** on rewind, `session/fork` a NEW muse session from the current one (preserves muse's runtime view of the workspace), re-point the registry, mark the old muse session abandoned. MVP alternative if `session/fork` proves awkward live: start a fresh muse session and seed it with one "state recap" turn derived from the truncated OpenCode transcript (rehydration), clearly marked in narration.
-- OpenCode fork (`--fork`) is just a new OpenCode session id → normal registry path (map to the same muse session? No: OpenCode forks are independent sessions; sharing a muse session across two OpenCode sessions would interleave context. Map forks to fresh muse sessions via fork/rehydration as above).
+The bridge sends only new user input, so without intervention Muse would continue reasoning from discarded turns. Compare the incoming sequence against the last confirmed sequence: a prefix/tail divergence is a rewind even if message count is unchanged; an exact, previously committed compaction is not. Do not update the committed ledger until the compacted summary is observed in a later prompt (§6.1).
+- **Policy:** when the rewind point maps to a completed Muse turn, call `session/fork` with an explicit `cutPoint.lastTurnId` for the last retained turn, then re-point the OpenCode session to the returned Muse session. Omitted `cutPoint` means all completed turns and is not a rewind. Verify this behavior against the pinned CLI.
+- **Unmappable boundary:** v1 does not fabricate history by replaying old user text (which could trigger actions). If the retained OpenCode transcript cannot be mapped unambiguously to a completed Muse turn, stop with a clear message and ask the user to start a new Muse session.
+- **OpenCode fork:** a new OpenCode session gets a separate Muse session. If the parent mapping and retained boundary are available, fork it at that mapped point; otherwise require a fresh session rather than sharing one Muse session or replaying an untrusted transcript as a new request.
+- **Filesystem effects:** `session/fork` branches Muse conversation state only; it does not revert files Muse already changed. The plugin does not perform implicit file rollback. Verify and document OpenChamber's independent file-restore behavior; absent that, warn that rewind is conversation-only.
 
-**Multiple sessions:** each OpenCode session has its own muse session; no sharing, no cross-contamination. Known limitation: two concurrent OpenCode sessions in the *same directory* run two concurrent muse agents editing the same files — muse has no cross-host workspace lock. v1 documents this; per-workspace serialization is a possible later hardening.
+**Workspace concurrency:** v1 acquires a workspace-scoped lock before a Muse turn and releases it only after terminal completion/cancellation and pending approvals are settled. A second OpenCode session targeting the same workspace receives a clear busy error; it does not start a concurrent writer or wait invisibly. Handle stale locks on process death. The lock remains held after `turn/foregroundCompleted` until `turn/completed`, because Muse background work may continue.
 
 ## 8. Models and variants
 
 From `model/list` (stable surface, 5 models on provider `meta`; defaults e.g. `muse-spark-1.3-contributor` under contributor mode):
 
 - `Model.Info` per muse model: `modelId` as OpenCode model id, context/output limits, `released` date, display name (`displayLabel`), active/default flags map to `status`/`enabled`.
-- Effort tiers (`minimal…max`, per-model subsets) → OpenCode **variants** with empty settings (effort is carried by the bridge → `session/setReasoningEffort` on turn start; opencode-claude precedent).
-- **Fallback catalog (required, not optional).** OpenCode removes providers with **zero models** from `provider.list()`, hiding them in OpenChamber (opencode-cursor hit this and ships a placeholder seed). Since `model/list` needs a spawned, authenticated host, a muse-missing or logged-out startup would register an empty catalog and make the provider — and §11's sign-in cards — unreachable. Ship a static seed (known models, or one placeholder when entirely stale) and refresh from `model/list` once a host is available.
-- Catalog refresh: cache + periodic refresh via `provider.reload()` (opencode-claude pattern; 10-min TTL guard).
+- Preserve `providerId`, `profileId`, `modelId`, limits, and display metadata from `model/list` when building OpenCode models. On initial Muse session start pass the selected model/provider; on subsequent picker changes call `session/setModel`.
+- Effort tiers (`minimal…max`, per-model subsets) → OpenCode **variants**. Pass the selected tier in `turn/start.reasoningEffort` for that turn; use `session/setReasoningEffort` only for an explicit persistent-default change. Hide/disable variants when the catalog says effort is unknown.
+- **Fallback catalog (required, not optional).** OpenCode removes providers with **zero models** from `provider.list()`, hiding them in OpenChamber. Ship a static seed of known model IDs, clearly marked stale/unavailable as needed. A placeholder may keep the provider visible only if the UI can mark it non-runnable and explain setup; do not advertise a fake selectable model that fails later without explanation. Refresh from `model/list` once available.
+- Catalog refresh: update the plugin's cached catalog first, then call `provider.reload()`; verify this actually re-runs the provider transform/model discovery in the pinned OpenCode version. Retain the last good catalog if refresh fails.
 
 ## 9. Narration (muse tool/file activity → OpenCode transcript)
 
 Muse runs its own tools (26-member `muse` namespace); OpenCode sees nothing unless we narrate.
 
 - Bridge subscribes to muse `item/*` tool/file events and posts compact entries via `session.synthetic({sessionID, text, description, metadata})` — e.g. "muse: edited src/foo.ts (+12/−3)".
-- Aggregate, don't spam: coalesce consecutive file-edit items per turn into one synthetic entry. Full diffs stay in OpenCode's file-history only if a tool runs on the OpenCode side (out of scope here); muse edits are narrated, not diffed.
+- Aggregate, don't spam: coalesce consecutive file-edit items per turn into one synthetic entry. V1 narration does not create OpenCode-native diffs or file-history entries. Verify whether OpenChamber independently detects and can restore Muse-written files; otherwise clearly disclose that its normal diff/undo/rewind affordances may not cover Muse's external file writes.
 - Approval parking (§10) interleaves here: approval cards are permission requests, not narration.
 
 ## 10. Approvals bridge
 
-Muse approves side-effectful actions on the wire (`approval/requested`, decide via `approval/decide`; default `on-request` mode).
+Muse approves side-effectful actions on the wire (`approval/requested`, decisions via `approval/decide`; use the exact pinned-schema approval-mode spelling, expected `onRequest`).
 
-```ts
-// muse approval/requested →
-const { id, effect } = await ctx.permission.create({ sessionID, action: "muse", resources: [describe(subject)], metadata: {...} });
-if (effect === "ask") { const reply = await pendingReply(id);        // await OpenCode UI
-  await msp.command("approval/decide", { sessionId, approvalId, choiceId: map(reply) }); }
-```
+`approval/requested` carries the actual `approvalId`, `currentRequirementId`, `availableChoices`, subject, tool/args, turn, and session. Retain this state while the Muse turn is parked. Surface a permission UI only after verifying it can present the offered choices and return a concrete user decision.
 
-- `Permission.Effect` = `allow | deny | ask`; muse parks the turn while a decision pends (Paseo — another MSP-speaking client, our second reference integration — fixture evidence), so no timeout bridging is needed.
-- OpenCode reply vocabulary (`approve/deny/always`) maps to muse choice ids (`allow_once` preferred; `always` → `allow_always` if offered, else mark in registry to auto-allow next time — **scoped to the approval subject** (tool + path/command prefix, never global) and **expiring with the OpenCode session**, so a prompt-injected tool output can't parlay one "always" into unrestricted shell).
-- Approval cards carry the muse subject descriptor (tool + args summary) in `resources`/`metadata` so the OpenChamber UI shows a readable card.
-- Per-approval mode: session/start picks the muse approval mode; MVP uses the default (`on-request`). A setting can relax it to auto-approve for trusted contexts (explicit user choice, off by default).
-- **`userInput/*` bridging (Phase 2, same machinery).** Muse can ask the user a clarifying question mid-turn (`userInput/requested`; `userInput/answer`/`clarify`/`interrupt` exist in stable MSP). Unhandled, the turn parks indefinitely with nothing user-visible. MVP mapping: surface the question as a permission-style card; "proceed" → `userInput/answer` (proceed with best judgment), "dismiss" → `userInput/interrupt`; narrate either way.
+- Submit exactly an offered `choiceId`, its current `requirementId`, target `sessionId`, and a persisted UUIDv7 `commandId` via `approval/decide`. Handle `approval/updated` as a new stage/choice set and `approval/resolved` as terminal. Never reuse a stale requirement ID. `ctx.permission.create` is only a candidate UI channel: prove it can display the offered choice labels/scopes and return a specific selection; if it only supports generic allow/deny/ask, the approval bridge is not implementable through that UI and must fail closed or be deferred.
+- Do not assume OpenCode's generic allow/deny/always vocabulary can represent Muse's dynamic choices. If the UI cannot faithfully express the available choices, fail closed with an explanation; do not invent choice IDs or substitute local policy.
+- No plugin-side "always" cache or auto-allow matcher in v1. Persistent/always decisions are allowed only when Muse itself offers a matching choice and the UI clearly describes its scope.
+- Default to the exact pinned-schema `onRequest` approval mode. No auto-approve setting in v1. Keep the host alive while approval is pending; closing the UI or timing out must explicitly deny/cancel/interrupt the corresponding Muse request, not silently reap the host.
+- Approval UI must display a sanitized tool/subject/args summary. Do not place raw arguments or secrets in logs or persistent registry data.
+
+**Structured user input is separate from permissions.** `userInput/requested` can contain multiple questions, selections, and free text; an allow/deny card cannot answer it. Phase 2 may implement this only if an OpenCode/OpenChamber UI surface can collect the full MSP answer schema. If no such UI is available, v1 does not claim support: interrupt the named prompt/turn with a clear explanation and never fabricate or infer user answers. Probe the exact `userInput/answer`/`cancel`/`interrupt` behavior and their required IDs before implementation.
 
 ## 11. Auth, state detection, and login UX
 
-- **No config parsing.** The plugin never opens `~/.config/muse` (invariant §2.2): the file's metadata and secrets share one JSON document, and its schema is undocumented internal storage that can change in any patch release, whereas MSP surfaces are versioned. Detection is on-demand (sign-in card, first failed turn) and costs one host spawn. For identity display ("signed in as …"), use `account/read` behind the experimental capability flag if ever justified. State comes from wire surfaces only:
-  - logged-out: the host exits with code 3 (credentials) — at spawn or on the first auth-needing call; the exact sequencing is a Phase-1 probe — → "run `muse login`" card;
-  - logged-in without subscription: live-verified typed failure `402 Billing verification failed` (`modelError`, non-retryable) surfaced on the first turn → "no active Muse Code subscription — subscribe or set a pay-as-you-go key" (set via `muse auth set --provider meta --api-key-stdin`; `META_API_KEY` takes priority over account login — verified in CLI help).
-- **Sign-in integration method** (OpenCode integration domain, opencode-claude pattern): `authorize` spawns `muse login`, relays stdout (device code + URL instructions) into the UI, then polls a cheap state probe (`session/list`) until success; progress and errors are surfaced verbatim from the CLI.
+- **No config parsing.** The plugin never opens `~/.config/muse` (invariant §2): secrets and metadata share the file, and its schema is private/unstable. State comes only from a verified wire/CLI probe. Pin the exact logged-out sequence before implementing UX: host exit code 3 and the credentials error were observed, but whether that occurs at spawn, initialize, session/list, or the first auth-needing operation must be tested. Do not treat an empty `session/list` as proof of authentication.
+  - Logged out → actionable "run `muse login`" state only after the probe confirms credentials are absent.
+  - Logged in without subscription → map only the verified billing failure (`402 Billing verification failed`, `modelError`, non-retryable) to subscription/PAYG guidance. Do not label every `modelError` as a billing problem. `muse auth set --provider meta --api-key-stdin` and `META_API_KEY` priority are documented CLI paths; the plugin never reads or relays key values.
+  - If identity display is ever needed, use `account/read` only behind negotiated experimental capability; it is not required for v1.
+- **Sign-in integration method** (OpenCode integration domain, opencode-claude pattern): first prove the method appears in OpenChamber without source changes. Spawn `muse login` with the required TTY/stdio behavior, show device-code instructions to the user, and keep stdout/stderr ephemeral—never log raw output or surface unfiltered diagnostics that could contain secrets. Poll only a probe proven to distinguish login success from an empty local session list. Cancellation, timeout, and CLI-not-installed behavior must be explicit.
 - Install detection: `muse` on PATH (+ `muse --version` fingerprint for the drift check, §14). Install instructions link to Meta's docs rather than auto-installing in MVP (official install channel still releases per-version archives — verify at build time).
 
 ## 12. OpenChamber consumption
 
-- Zero OpenChamber changes for chat use: OpenCode consumes npm plugins generically; OpenChamber's UI lists provider models.
+- Provider/model visibility is expected from generic OpenCode plugin loading, but verify in the actual OpenChamber UI. Also verify that plugin integration/auth methods surface there; provider registration alone does not prove the sign-in UX is reachable. No OpenChamber source changes are in v1 scope; if the UI does not expose the needed method, v1 uses documented manual `muse login` instructions rather than promising an unavailable sign-in card.
+- V1 does not promise OpenCode-native file diffs or undo for Muse writes; verify OpenChamber's independent filesystem detection/restore behavior and display the limitation if needed.
 - **Phase 5 (optional, separate PRs in openchamber):** integrations-catalog entry (`packages/ui/src/lib/integrations-catalog/registry.ts`) and a quota panel adapter fed from muse `usage/read` (experimental surface — requires the experimental capability probe) or from narrated usage events. Not required for v1.
 
 ## 13. Phasing
 
-0. **Foundations (done):** spike #1 (Q1–Q11 verdicts) + seam smoke test (this design's §3 rows).
-1. **Bridge MVP:** plugin scaffold, registration + `file://` factory, **correlation-carrier probe (first)**, static fallback catalog + `model/list` refresh, chat-only bridge (session/start, turn/start, stream mapping, cancel mapping), local title/compaction with the fingerprint ledger. Gate: an end-to-end OpenChamber chat turn on a PAYG key.
-2. **Approvals + narration:** permission bridge, `userInput/*` bridging, synthetic narration, host pool reaping, muse-session naming, registry persistence + resume across restarts.
-3. **Auth UX:** sign-in relay, state cards, subscription/PAYG guidance.
-4. **Robustness:** rewind/fork policy, image support decision, steer, usage surface.
+0. **Foundations (done):** spike #1 and seam smoke test. Before bridge code, pin `muse schema` output/version and the OpenCode binary/runtime tested.
+1. **Bridge MVP:** correlation-carrier probe first; model/effort routing; static catalog; session registry and command-ID idempotency; view subscribe/cursor replay; `doStream`/`doGenerate`; turn lifecycle/error mapping; local title/compaction; context allowlist; explicit non-text modality rejection; workspace lock; host/session lifecycle and naming. Gate: end-to-end PAYG chat plus disconnect/restart recovery without duplicate turns or lost output.
+2. **Approvals + narration:** exact offered-choice approval bridge and synthetic narration. Structured `userInput/*` only if UI feasibility and answer-shape probes pass; otherwise explicitly unsupported. Extend host lifetime handling for pending approvals/input.
+3. **Auth UX:** verified login-state probe, safe sign-in relay, state guidance. Gate: integration method visible in OpenChamber or documented manual login fallback.
+4. **Robustness:** mapped rewind/fork at explicit cut points, cancellation/steer semantics, usage display. File rollback remains out of scope unless a verified OpenChamber mechanism exists.
 5. **OpenChamber polish:** catalog entry, quota panel (optional).
 
-Confirmatory live probes (streaming, cancel, resume, approval round-trip) run at the start of Phase 1 on a PAYG key — they are not blocked on a subscription.
+Confirmatory live probes (streaming, `doGenerate`, cancel, view replay/reconnect, resume, fork cut point, approval choice updates, and auth sequence) run on a PAYG key before their corresponding implementation. A subscription is not required for these probes.
 
 ## 14. Risks and open questions
 
 | Risk / question | Assessment | Mitigation |
 | --- | --- | --- |
-| `aisdk:` seam is invisible in public docs (reverse-engineered) | Real, but the hook API itself (`@opencode/plugin`) is public and versioned | Fallback registration (npm `aisdk:` package + language-hook override); startup fingerprint check of the OpenCode version with a loud log; a tiny CI smoke test against pinned OpenCode |
-| Muse CLI version drift (evidence pinned to 1.4.11) | Medium | Fingerprint & gate; read changelog at release time; store required minimum |
-| Live behavior of cancel/resume/approvals not yet exercised against real muse | Probe-level corroboration only (SDK journey, Paseo fixtures) | Phase-1 gate on PAYG key |
-| Quota multiplier (~13 model calls/agent-turn observed in the Shape B probe) | Matters for usage UX and for cost sanity on meta-requests (which we eliminated) | Measure precisely on PAYG; count muse usage events, not turns |
-| Image/multimodal input support in muse turn input | Unknown | MVP rejects with typed error; build-time probe |
-| Steer (`turn/steer`) semantics vs OpenCode's queued user messages | Unknown | Build-time probe; MVP: ignore, muse loop owns the iteration |
-| `session/fork` semantics (state carried into fork?) | Unknown | Live probe in Phase 1; rehydration fallback designed in §7 |
-| In-process correlation carrier (model.request stamp → `doStream` options) unverified — the smoke test's echo model needed no session context | High-impact if absent: kind routing, session mapping, workspaceRoot all depend on it | First Phase-1 probe; fallback: opencode-claude local-proxy shape, where HTTP headers carry it naturally |
-| Experimental-surface drift (`account/read`, `usage/read`, `session/promptHint` move or change) | Low–medium (all optional paths) | Capability-flag negotiation; feature-degrade, never fail |
-| Import-path stability of `@muse-code/sdk` npm package vs CLI version | Low | Pin dependency + runtime schema/fingerprint handshake already enforced by MSP (schema fingerprint warning on mismatch) |
-| ToS re-verification before release | Legal/compliance | Re-check §3.2/§13.4 reading in opencode-muse-auth#12 before public ship |
+| `aisdk:` seam is invisible in public docs (reverse-engineered) | Real; package routing/order is version-sensitive | Pin OpenCode; run seam/correlation CI probes; local-proxy fallback is a deliberate architecture change, not assumed equivalent |
+| Muse CLI/schema version drift | High until pinned against the supported binary; local declarations alone do not prove 1.4.11 behavior | Record `muse --version`, `muse schema` version/fingerprint, and SDK version; run contract probes against that exact binary |
+| In-process correlation carrier | Core prerequisite, currently unverified | Hard Phase-1 gate; stop if session/directory/kind/model/variant do not arrive; use local proxy if needed |
+| Stream loss / ambiguous turn after restart | Can lose output or duplicate file-changing work; exact request bodies are intentionally not persisted | Persist command IDs/request fingerprints/active turn/view cursor; replay via `view/subscribe`; same-ID retry only with exactly reconstructed payload; otherwise require user choice |
+| Rewind-to-Muse turn mapping | OpenCode rewind boundaries may not map to completed Muse turns | Explicit `cutPoint.lastTurnId`; unsupported with a clear message if mapping is ambiguous; never replay old prompts as actions |
+| Local compaction versus rewind | A failed/unpersisted summary can be mistaken for compaction | Commit ledger only after summary is observed in a later request; sequence fingerprints, not counts/marker alone |
+| Muse `turn/foregroundCompleted` and background work | OpenCode's visible answer may be ready before Muse's terminal event and final usage | Finish the V3 stream at foreground completion, keep the session monitor/lock until terminal completion, and probe this exact split on the pinned CLI; report OpenCode usage as provisional |
+| Local compaction size and fidelity | Deterministic digest is not semantic summarization; model tokenization/budget differs | Bound output using the request budget with a conservative margin; test repeated compaction and fail clearly if the minimum digest cannot fit |
+| Model and effort routing | Missing `session/setModel` or wrong effort call would ignore OpenCode's selection | Route initial and changed selections; use `turn/start.reasoningEffort`; test each model/variant end to end |
+| `doGenerate` use | Smoke test exercised streaming only | Probe OpenCode callers; implement shared generate/stream bridge or deliberately reject unsupported paths |
+| Auth/login sequence and OpenChamber integration UI | `session/list` and auth-method visibility are unproven | Probe exact unauthenticated flow and confirm UI surfacing; provide manual `muse login` fallback |
+| Approval UI cannot express Muse choice stages | Stale/incorrect decisions could authorize the wrong action | Use only current offered `choiceId` + `requirementId`; fail closed when UI cannot represent choices; no local persistent auto-allow |
+| Structured Muse user input | Permission cards cannot represent multi-question answers | Defer unless UI collects the full schema; interrupt explicitly rather than fabricate answers |
+| Workspace concurrency / external file edits | Agents may race; OpenCode may not track Muse writes for diff/undo | Workspace lock in v1; verify OpenChamber file detection/restore and disclose any gap |
+| Non-text multimodal input (image/audio/video) | Muse MSP has some media parts, but bridge conversion/upload is not in v1 | Reject before turn start with a clear, typed error; do not silently strip |
+| Session durability | MSP sessions may be durable or ephemeral depending on host configuration | Probe the `session/start` result on the pinned `muse serve`; only promise restart resume for durable sessions |
+| Quota interpretation (~13 internal model calls observed once) | Call count is not a token/quota multiplier; token cost varies by call | Measure aggregate `turn/completed.usage`; do not infer 13× token cost |
+| Experimental surfaces (`account/read`, `usage/read`) | Optional and may drift | Capability-gate; never make core chat depend on them |
+| ToS re-verification before release | Legal/compliance gate remains open | Re-check the cited position before public release |
 
 ## 15. Decision log
 
@@ -304,13 +332,14 @@ Confirmatory live probes (streaming, cancel, resume, approval round-trip) run at
 | 2026-10-20 | Shape B (muse-native agent) over Shape A (OpenCode-run tools) | No tool-disable knob in muse 1.4.11 (Q1); muse's system prompt is authoritative |
 | 2026-10-20 | Language-model seam via `aisdk.hook("language")`, not provider config `npm` | `model.request` can't suppress OpenCode's own tools (they're forwarded to the model; Q11-turned-trivial) |
 | 2026-10-20 | Plugin owns model implementation; needs no OpenCode-side tool suppression | Verified live: bridge ignoring 18 forwarded tools |
-| 2026-10-21 | Title + compaction answered locally (no muse calls) | Meta-requests don't benefit muse's context; the ~13× turn multiplier makes muse calls expensive; OpenCode rejects tool calls during compaction anyway |
-| 2026-10-21 | Session-authoritative mapping; rewind → `session/fork` (rehydration fallback) | Muse owns conversation context; OpenCode transcript is a projection |
+| 2026-10-21 | Title + compaction answered locally; stateless general `generate` is unsupported in v1 | Meta-requests do not benefit Muse's context; `session/sideChat` requires a source session and is not a stateless API |
+| 2026-10-21 | Session-authoritative mapping; rewind forks at an explicit mapped Muse turn boundary | Omitted fork cut point copies all completed turns; unmappable boundaries fail clearly rather than replaying old prompts |
 | 2026-10-21 | Never read `~/.config/muse`; state via wire surfaces + CLI help only | Compliance invariant §2 |
 | 2026-10-21 | PAYG `META_API_KEY` unblocks all live probes; subscription only for daily use | CLI help verified: key takes priority over login |
-| 2026-10-21 | Compaction-aware fingerprint ledger + summary marker; rewind detection excludes anticipated compactions | Otherwise every local compaction reads as rewind and forks the muse session (review C1) |
-| 2026-10-21 | Static fallback catalog + placeholder (cursor pattern) | OpenCode removes zero-model providers; §11's auth-UX cards must stay reachable when muse is missing/logged out (review C3) |
-| 2026-10-21 | Registry persists to plugin data dir, reconciled at startup | In-memory registry orphans durable muse sessions on every restart (review C4) |
-| 2026-10-21 | `userInput/requested` bridged as a permission-style card (Phase 2) | Unhandled, muse questions park the turn with nothing user-visible (review W1) |
-| 2026-10-21 | Correlation carrier is the first Phase-1 probe, local-proxy fallback documented | Kind routing, session mapping, and workspaceRoot all hang on it; smoke test didn't exercise it (review C2) |
-| 2026-10-21 | Images stripped + narrated warning, not hard turn failure | One accidental screenshot shouldn't kill a request; muse image support unverified (review N11) |
+| 2026-10-21 | Compaction ledger commits only after the generated summary is observed in a later prompt | Avoid classifying a cancelled/unpersisted summary as a real compaction |
+| 2026-10-21 | Registry persists cursor, active turn, and idempotency state; one host per OpenCode session | Resume must not lose events or duplicate side-effecting turns |
+| 2026-10-21 | Rewind uses explicit `cutPoint.lastTurnId`; no automatic transcript rehydration or file rollback | Avoid retaining discarded Muse context or re-running old prompts; filesystem effects are separate |
+| 2026-10-21 | Approval decisions must use currently offered Muse choices; no plugin-side always cache | The Muse policy and current requirement stage remain authoritative |
+| 2026-10-21 | Structured `userInput/*` is deferred unless a UI can collect its full answer schema | Permission UI cannot safely substitute for multi-question user input |
+| 2026-10-21 | Non-text modalities fail clearly before Muse turn start in v1 | Avoid silently discarding essential image/audio/video input |
+| 2026-10-21 | Model selection uses `session/setModel`; effort uses per-turn `turn/start.reasoningEffort` | The OpenCode picker must match Muse's actual route and selected variant |
