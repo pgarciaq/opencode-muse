@@ -1,0 +1,36 @@
+import { expect, test } from "bun:test";
+import { existsSync } from "node:fs";
+import { readRepositoryJson, repositoryPath } from "./helpers.ts";
+
+interface PackageMetadata {
+  exports?: {
+    "."?: {
+      import?: string;
+      types?: string;
+    };
+  };
+}
+
+interface TypeScriptConfig {
+  compilerOptions?: {
+    strict?: boolean;
+  };
+}
+
+test("published package entry exposes the OpenCode v2 plugin shape", async () => {
+  const packageMetadata = readRepositoryJson<PackageMetadata>("package.json");
+  const importPath = packageMetadata.exports?.["."]?.import;
+
+  expect(importPath).toBe("./dist/index.js");
+  expect(existsSync(repositoryPath(importPath ?? ""))).toBe(true);
+
+  const entry = await import(repositoryPath(importPath ?? ""));
+  expect(entry.default.id).toBe("opencode-muse");
+  expect(typeof entry.default.setup).toBe("function");
+  await entry.default.setup({});
+});
+
+test("TypeScript configuration enables strict checking", () => {
+  const tsconfig = readRepositoryJson<TypeScriptConfig>("tsconfig.json");
+  expect(tsconfig.compilerOptions?.strict).toBe(true);
+});

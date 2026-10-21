@@ -1,0 +1,59 @@
+{
+  "name": "opencode-muse",
+  "version": "0.1.0",
+  "description": "OpenCode plugin backed by the official Muse Code CLI and MSP",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "bun test ./test/run.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pgarciaq/opencode-muse.git"
+  },
+  "bugs": {
+    "url": "https://github.com/pgarciaq/opencode-muse/issues"
+  },
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "muse-code",
+    "msp",
+    "ai",
+    "llm",
+    "agent"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@muse-code/sdk": "1.4.11"
+  },
+  "devDependencies": {
+    "@ai-sdk/provider": "3.0.8",
+    "@opencode/plugin": "2.0.16",
+    "@types/bun": "1.3.11",
+    "@types/node": "22.15.0",
+    "bun": "1.4.3",
+    "typescript": "5.9.3"
+  }
+}

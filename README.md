@@ -13,16 +13,18 @@ credential-extraction approach under review in that repo's
 
 ## Status
 
-Currently in the spike phase — see
-[the spike issue](https://github.com/pgarciaq/opencode-muse/issues) for the
-list of questions this project must answer before any real build starts.
+Design v1.3 and the implementation/TDD plans are approved. Implementation has
+started with the compatibility gates; see the
+[v1 tracking issue](https://github.com/pgarciaq/opencode-muse/issues/2) for
+current progress. Muse lifecycle/media and OpenChamber UI probes remain gates
+before the features that depend on them.
 
 ## Credits and references
 
-- [opencode-claude](https://github.com/openchamber/opencode-claude) — the
-  architectural pattern this project follows (a local OpenAI-compatible
-  provider that drives the official CLI/SDK; tools execute in OpenCode;
-  auth never leaves the CLI).
+- [opencode-claude](https://github.com/openchamber/opencode-claude) — a
+  reference for OpenCode v2 plugin setup, model/session hooks, bridge
+  lifecycle, and the local-proxy fallback. This plugin uses Muse-native tools;
+  auth and inference stay in the Muse CLI.
 - [muse-code-sdk](https://github.com/meta-models/muse-code-sdk) — official
   Muse Code SDK and the Muse Session Protocol this project will use.
 - [Paseo's Muse Code integration](https://paseo.sh/docs/muse-code) — a
