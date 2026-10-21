@@ -130,6 +130,19 @@ OpenCode makes model calls of different kinds. The `session.hook("model.request"
 
 Rationale: the ~13-model-calls/turn multiplier (§14) makes every muse round trip expensive; title/compaction carry no value from muse because muse owns the conversation context anyway.
 
+**What "local" means (compaction).** The summary is written by plugin code running inside the `opencode` process — deterministic, zero model calls of any kind (no muse turn, no other OpenCode model). It is entirely separate from muse's own context management (`session/compact`), which muse applies to its authoritative session independently and is untouched by this path.
+
+**Why answer compaction locally at all** — muse never consumes the result (the bridge sends only *new* user content each turn), but the call isn't optional for OpenCode: when compaction fires, something must come back successfully. The options considered:
+
+| Option | Outcome |
+| --- | --- |
+| Forward to the live muse session | Pays the ~13× multiplier; the summarization prompt and its answer land in muse's history, polluting the real conversation |
+| Route to a scratch muse session | Real LLM summary, no pollution — but still pays the multiplier every time, for output muse will never read |
+| Fail the request | OpenCode's compaction step errors (surfaced to the user, possibly retried) and its transcript grows unbounded |
+| **Answer locally (chosen)** | Step succeeds, costs nothing, no side effects anywhere |
+
+**What the local summary is for** — bookkeeping for the projection only: (1) OpenCode's compaction step completes cleanly; (2) the transcript OpenCode/OpenChamber holds and renders stays bounded in long sessions; (3) portability — if a session is later moved to another provider, that provider *does* receive the transcript; (4) OpenCode features that read session history (subagent flows, export) operate on the trimmed transcript. Heuristic quality is acceptable precisely because the real context lives in muse.
+
 ### 6.2 Touching muse: the turn protocol
 
 For an agent-kind call the bridge:
