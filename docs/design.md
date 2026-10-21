@@ -1,6 +1,6 @@
 # opencode-muse — Design
 
-**Status:** draft v1.2 for review · 2026-10-21 (full consistency review; no implementation started)
+**Status:** draft v1.3 for review · 2026-10-21 (modality/structured-output capability correction; no implementation started)
 **Decision basis:** spike issue [#1](https://github.com/pgarciaq/opencode-muse/issues/1) (probe record: Q1 verdict, close-out, smoke-test comment). Companion context: TheStreamCode/opencode-muse-auth#12 (compliance concern that motivates this design).
 
 ---
@@ -45,6 +45,8 @@ Evidence below includes the live spike/smoke test, source inspection, and vendor
 | `session/tokenUsage.cumulative` is a running session total; `turn/completed.usage` is the turn aggregate | Vendored stable schema; re-verify against the pinned Muse CLI schema before implementation |
 | `turn/unqueued` means a queued turn was reclaimed before launch; `turn/started` signals launch | Vendored stable schema; re-verify against the pinned Muse CLI schema before implementation |
 | `session/sideChat` requires a source session; its new side session opens empty | Vendored stable schema; not a stateless generation API |
+| The current vendored `TurnInputPartType` includes `text`, `image`, `video`, and `skill`; image payload uses base64/media type, video uses a `media/upload` receipt; no direct `audio` or `pdf` turn part appears | Vendored stable schema; re-verify against the pinned Muse CLI schema |
+| Meta Model API model support for image/audio/video or structured JSON does not by itself prove the same feature is exposed through `muse serve`/MSP | Official [model capabilities](https://dev.meta.ai/docs/models) and [structured output guide](https://dev.meta.ai/docs/cookbook/structured-output); protocol requires separate verification |
 | `view/subscribe` can replay notifications after an observed cursor; `view/gap` signals a missed range | Vendored stable schema; re-verify against the pinned Muse CLI schema before implementation |
 | State-changing MSP commands carry UUIDv7 `commandId`s; turn/start and approval decisions echo IDs/turn state | Vendored stable schema; design requires durable idempotency handling |
 | A session can be durable or ephemeral | Vendored stable schema; restart-resume must verify durable mode at runtime |
@@ -181,7 +183,9 @@ For an agent-kind call the bridge:
 3. Build the input from the new user request plus the explicit host-context allowlist in §6.4. Never replay the entire OpenCode transcript as a new Muse turn.
    - user text → MSP text input items; file paths remain text unless file content is explicitly present in the allowed prompt context. V1 has no implicit file-upload or file-content injection path;
    - system/agent/project context → only the curated, labelled context defined in §6.4; `session/promptHint` is not a context channel;
-   - image, audio, video, or other non-text parts → **fail before starting the Muse turn with a clear unsupported-input error in v1**. Do not silently discard essential input. MSP's image/video upload parts are not implemented by this bridge; OpenCode file paths remain text unless their contents are explicitly present in the allowed prompt context.
+   - image parts → map supported in-memory image data to MSP `type:"image"` with `base64Data` and `mediaType` (dimensions when available). Do not fetch arbitrary remote URLs; if a prompt contains only an unsupported remote reference, return a precise bridge-input error.
+   - video parts → probe and implement MSP `media/upload` plus `type:"video"` upload receipts, with size, cancellation, and error handling; do not reject merely because upload plumbing is required.
+   - audio and PDF parts → probe for a supported `muse serve`/MSP or official CLI path. The current vendored turn schema has no direct audio/PDF part; if no supported route exists in the pinned CLI, report that specific bridge limitation rather than claiming the model lacks the capability. File paths in the workspace remain ordinary text and Muse may use its own workspace tools to read them.
 4. Subscribe to the session view with `view/subscribe` after start/resume. Persist the returned/last-seen view cursor and consume replay/live notifications in cursor order; recover gaps/reconnects via the MSP view API (§7). Do not assume item notifications arrive without a view subscription.
 5. Call `turn/start`, inspect its `disposition` and authoritative `turnId`, then translate the view stream into V3 stream parts:
 
@@ -211,7 +215,7 @@ Wire-format facts verified in the smoke test (must hold for all emitted parts): 
 
 ### 6.3 “Suppression” invariant (test)
 
-The bridge never emits `tool-input-start`/`tool-call` parts. OpenCode's tools stay registered and are even forwarded into `doStream` params — they are ignored by construction. If a request requires a tool (`toolChoice` is forced) or requires JSON/structured output that the Muse turn cannot guarantee, fail clearly rather than returning plain text as if the constraint were met. Ordinary sampling settings not represented by Muse are not promised; document which are ignored. Test in CI once muse is live: a full agent turn must generate **zero** OpenCode tool calls and **zero** OpenCode permission prompts for tools.
+The bridge never emits OpenCode `tool-input-start`/`tool-call` parts. OpenCode's tool definitions stay registered and are forwarded into `doStream` params, but Muse's native agent loop owns execution. Do not fail merely because the tool list is non-empty. If OpenCode explicitly requires a particular OpenCode-side tool call that the Muse bridge cannot perform, return a precise unsupported-operation error; do not pretend Muse's differently scoped native tool is equivalent. For strict JSON/structured-output options, probe for an MSP/CLI setting and map it if available; if the caller requires a schema guarantee and the pinned bridge has no such setting, fail that strict mode only. A user asking for JSON in ordinary text remains a normal Muse prompt. Ordinary sampling settings not represented by Muse are not promised; document which are ignored. Test in CI once muse is live: a full agent turn must generate **zero** OpenCode tool calls and **zero** OpenCode permission prompts for tools.
 
 ### 6.4 OpenCode context contract
 
@@ -293,7 +297,7 @@ Muse approves side-effectful actions on the wire (`approval/requested`, decision
 ## 13. Phasing
 
 0. **Foundations (done):** spike #1 and seam smoke test. Before bridge code, pin `muse schema` output/version and the OpenCode binary/runtime tested.
-1. **Bridge MVP:** correlation-carrier probe first; model/effort routing; static catalog; session registry and command-ID idempotency; view subscribe/cursor replay; `doStream`/`doGenerate`; turn lifecycle/error mapping; local title/compaction; context allowlist; explicit non-text modality rejection; workspace lock; host/session lifecycle and naming. Gate: end-to-end PAYG chat plus disconnect/restart recovery without duplicate turns or lost output.
+1. **Bridge MVP:** correlation-carrier probe first; model/effort routing; static catalog; session registry and command-ID idempotency; view subscribe/cursor replay; `doStream`/`doGenerate`; turn lifecycle/error mapping; local title/compaction; context allowlist; image mapping and video upload where confirmed by MSP; narrow audio/PDF/strict-JSON limitations only where no official bridge route exists; workspace lock; host/session lifecycle and naming. Gate: end-to-end PAYG chat plus disconnect/restart recovery without duplicate turns or lost output.
 2. **Approvals + narration:** exact offered-choice approval bridge and synthetic narration. Structured `userInput/*` only if UI feasibility and answer-shape probes pass; otherwise explicitly unsupported. Extend host lifetime handling for pending approvals/input.
 3. **Auth UX:** verified login-state probe, safe sign-in relay, state guidance. Gate: integration method visible in OpenChamber or documented manual login fallback.
 4. **Robustness:** mapped rewind/fork at explicit cut points, cancellation/steer semantics, usage display. File rollback remains out of scope unless a verified OpenChamber mechanism exists.
@@ -319,7 +323,7 @@ Confirmatory live probes (streaming, `doGenerate`, cancel, view replay/reconnect
 | Approval UI cannot express Muse choice stages | Stale/incorrect decisions could authorize the wrong action | Use only current offered `choiceId` + `requirementId`; fail closed when UI cannot represent choices; no local persistent auto-allow |
 | Structured Muse user input | Permission cards cannot represent multi-question answers | Defer unless UI collects the full schema; interrupt explicitly rather than fabricate answers |
 | Workspace concurrency / external file edits | Agents may race; OpenCode may not track Muse writes for diff/undo | Workspace lock in v1; verify OpenChamber file detection/restore and disclose any gap |
-| Non-text multimodal input (image/audio/video) | Muse MSP has some media parts, but bridge conversion/upload is not in v1 | Reject before turn start with a clear, typed error; do not silently strip |
+| Model/API modality versus MSP modality | A model can support media/JSON in Meta Model API while `muse serve` exposes a narrower input surface | Map MSP image/video parts; probe audio/PDF and strict JSON; error only for unsupported bridge paths, not model capability |
 | Session durability | MSP sessions may be durable or ephemeral depending on host configuration | Probe the `session/start` result on the pinned `muse serve`; only promise restart resume for durable sessions |
 | Quota interpretation (~13 internal model calls observed once) | Call count is not a token/quota multiplier; token cost varies by call | Measure aggregate `turn/completed.usage`; do not infer 13× token cost |
 | Experimental surfaces (`account/read`, `usage/read`) | Optional and may drift | Capability-gate; never make core chat depend on them |
@@ -341,5 +345,5 @@ Confirmatory live probes (streaming, `doGenerate`, cancel, view replay/reconnect
 | 2026-10-21 | Rewind uses explicit `cutPoint.lastTurnId`; no automatic transcript rehydration or file rollback | Avoid retaining discarded Muse context or re-running old prompts; filesystem effects are separate |
 | 2026-10-21 | Approval decisions must use currently offered Muse choices; no plugin-side always cache | The Muse policy and current requirement stage remain authoritative |
 | 2026-10-21 | Structured `userInput/*` is deferred unless a UI can collect its full answer schema | Permission UI cannot safely substitute for multi-question user input |
-| 2026-10-21 | Non-text modalities fail clearly before Muse turn start in v1 | Avoid silently discarding essential image/audio/video input |
+| 2026-10-21 | Capability-aware input handling: map MSP image/video; probe audio/PDF and strict JSON | Model/API features and the `muse serve` protocol are separate capability layers |
 | 2026-10-21 | Model selection uses `session/setModel`; effort uses per-turn `turn/start.reasoningEffort` | The OpenCode picker must match Muse's actual route and selected variant |
