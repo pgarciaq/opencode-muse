@@ -17,7 +17,7 @@
 - Keep Contributor mode enabled for the user's subscription-backed live tests; tests must not toggle account settings.
 - Pin OpenCode, Muse CLI, exported stable/experimental MSP schema, and SDK versions before interpreting protocol results.
 - No test may read `~/.config/muse`; test auth behavior through CLI/MSP boundaries and instrumented filesystem/process interfaces.
-- For MSP methods whose schema defines `commandId`, every exact retry reuses that ID and payload. `media/upload` and `view/subscribe` use their method-specific upload IDs/cursors; do not invent `commandId`s. Never automatically replay an ambiguous side-effecting turn.
+- For MSP methods whose schema defines `commandId`, every exact retry reuses that ID and payload. Each `media/upload` chunk carries a UUIDv7 `commandId` and the upload's shared `uploadId`; `view/subscribe` uses cursors without a `commandId`. Never invent IDs or automatically replay an ambiguous side-effecting turn.
 - Test model capability and MSP bridge capability separately. Map supported media; assert narrow errors only for unsupported bridge paths.
 - Tests must not assert filesystem rollback on rewind; the plugin explicitly does not perform it.
 
@@ -80,10 +80,12 @@ The compatibility probes in Tasks 1, 2, 4, and 5 of the implementation plan are 
 
 **Files:** `src/msp/client.ts`, `src/msp/host.ts`, `test/unit/msp-client.test.ts`, `test/unit/msp-host.test.ts`.
 
-- **Red:** Add `msp.retriesSameCommandIdAndPayload`, `msp.subscribesAfterCursor`, `msp.replaysGaplessEvents`, and `host.closesChildOnShutdown`; assert exact UUIDv7 command IDs, exact retry payload, and ordered cursor delivery.
+- **Red:** Add `msp.startAndResumeAttachAtReturnedHead`, `msp.viewSubscribeReplaysAfterObservedCursor`, `msp.replaysGaplessEvents`, `msp.retriesSameCommandIdAndPayload`, and `host.closesChildOnShutdown`; assert auto-attach at start/resume, explicit replay from a cursor, exact command IDs/payloads, and event ordering.
 - **Green:** Implement the SDK wrapper and per-OpenCode-session stdio process with startup/command timeouts, sanitized stderr, cursor-aware subscriptions, and graceful close.
 - **Refactor:** Separate process lifecycle from typed MSP command methods; keep both covered through the fake transport.
 - **Verification:** `bun test test/unit/msp-client.test.ts test/unit/msp-host.test.ts`; no test reads Muse config or needs a live model.
+
+**Pinned-runtime gate note:** Muse 1.4.11/Linux echo passes durable-session start, same-command deduplication, cursor replay, and reconnect resume, but explicit `session/fork.cutPoint` fails with `-32603 internal: file birth time is unavailable`; `session/rename` also fails despite a granted capability. Keep rewind/fork implementation blocked until the fork probe passes on a supported target or the approved design is revised again. Echo emitted no assistant text or model usage, so this does not replace the opt-in live-Meta test.
 
 ### Slice 4: Durable registry and workspace lock
 
@@ -107,7 +109,7 @@ The compatibility probes in Tasks 1, 2, 4, and 5 of the implementation plan are 
 
 **Files:** `src/model/prompt.ts`, `src/model/context.ts`, `test/unit/prompt.test.ts`, `test/unit/media-mapping.test.ts`, `test/unit/model-options.test.ts`.
 
-- **Red:** Add `prompt.sendsOnlyNewUserInput`, `prompt.forwardsAllowlistedAgentContext`, `media.mapsInlineImageToMspPart`, `media.videoUsesUploadReceipt`, `media.doesNotFetchRemoteUrl`, and `options.doesNotFailForNonemptyTools`.
+- **Red:** Add `prompt.sendsOnlyNewUserInput`, `prompt.forwardsAllowlistedAgentContext`, `media.mapsInlineImageToMspPart`, `media.videoChunksUseCommandIdAndStableUploadId`, `media.doesNotFetchRemoteUrl`, and `options.doesNotFailForNonemptyTools`.
 - **Red from probe outcomes:** Add audio/PDF tests for the verified official MSP/CLI route; where none exists, assert a precise `UnsupportedBridgeInput` error. Add `options.mapsStrictJsonIfSupported` or `options.rejectsOnlyStrictJsonWhenUnsupported` based on the pinned probe. Plain user text asking for JSON must pass as text.
 - **Green:** Map image bytes to MSP `image` parts and video through `media/upload` receipts; support audio/PDF only through an official verified path. Reject remote URLs unless the pinned bridge has a safe, explicit route; never fetch arbitrary URLs.
 - **Refactor:** Keep input normalization and OpenCode option validation pure; make errors identify the unsupported representation, not model capability.

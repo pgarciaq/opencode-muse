@@ -19,9 +19,9 @@
 - One `muse serve` process and one Muse session per OpenCode session in v1.
 - V1 maps image/video through verified MSP parts; probe audio/PDF/strict JSON paths and report only bridge-specific limits. General stateless `generate` remains unsupported, and the plugin never fabricates `userInput/*` answers.
 - Muse approval decisions use only currently offered `choiceId` + `requirementId`; no plugin-side persistent auto-allow.
-- No automatic transcript rehydration or filesystem rollback on rewind; ambiguous side-effecting turns are never replayed automatically.
-- Use PAYG `META_API_KEY` for live probes when available; never require or extract a subscription credential.
-- For the user's subscription-backed live tests, keep Contributor mode enabled as requested; the plugin and test harness must not toggle this account setting.
+- No automatic transcript rehydration or filesystem rollback on rewind; ambiguous side-effecting turns are never replayed automatically. Rewind/fork implementation stays blocked until explicit `session/fork.cutPoint` succeeds on a supported target runtime.
+- Use the user's existing official-CLI Muse access for live probes (subscription-backed Contributor mode is preferred; configured PAYG is also acceptable); never require or extract credentials.
+- Keep Contributor mode enabled for the user's subscription-backed live tests; the plugin and test harness must not toggle this account setting.
 
 ## Review Focus
 
@@ -111,15 +111,17 @@ Create focused modules; adjust names only to match actual pinned SDK exports, an
 
 **Interfaces:** Use the pinned `@muse-code/sdk` connection to `muse serve`; record only IDs, event names, cursors, terminal kinds, and sanitized usage counts.
 
-- [ ] Start a Muse session with the selected workspace/model/approval mode and record whether the returned session is durable or ephemeral.
-- [ ] Subscribe with `view/subscribe`; start one PAYG turn; assert event ordering, `turnId`, `turn/started`, text item start/delta/completion, `turn/completed`, and per-turn usage.
-- [ ] Disconnect and resume the same session; subscribe after the last cursor and assert replay has no missing or duplicated folded events; exercise `view/gap` recovery if reproducible.
-- [ ] Re-submit an idempotent command with the exact same `commandId` and exact payload; assert the host does not create a duplicate turn. Document which results can be recovered by command ID/view history.
-- [ ] Probe cancel vs interrupt vs unqueue, the `turn/start` dispositions, approval park/resolution, `turn/foregroundCompleted`, `session/fork` with an explicit cut point, and session rename.
+- [x] Echo probe: start a Muse session with an isolated workspace and record durability (`durable` from initialize).
+- [x] Echo probe: verify start auto-attaches at the returned view cursor and a `turn/start` command retry with the same ID/payload returns the same turn with one `turn/started`; the local echo provider emitted no assistant text/item deltas and reported zero usage, so live response/usage verification remains pending.
+- [x] Echo probe: disconnect and resume the same session; `view/subscribe` after the prior cursor replayed the terminal once, both before and after reconnect. `view/gap` recovery remains pending because no gap was induced.
+- [ ] Live authorized turn: verify model-generated item/text lifecycle and nonzero or otherwise model-authored per-turn usage; keep Contributor mode unchanged.
+- [x] Echo probe: re-submit `turn/start` with the exact same `commandId` and payload; the host returned the same turn and did not create a duplicate start event. Result is recoverable from the view; same-command replay did not create a second turn.
+- [ ] Probe cancel vs interrupt vs unqueue, `turn/start` dispositions beyond `started`, approval park/resolution, and `view/gap` recovery.
+- [x] Probe explicit `session/fork.cutPoint` and `session/rename`: on Muse 1.4.11/Linux, fork returned internal `file birth time is unavailable`; rename capability was granted but rename returned internal `session naming is unavailable`. Rewind/fork is therefore blocked on this target; custom names are best-effort only.
 - [ ] Probe a small inline image, a video upload, audio/PDF input paths, and strict structured-JSON output through `muse serve`; record exactly which are accepted by the pinned protocol and which are not.
-- [ ] Verify whether a fork cut at Muse turn N excludes all later completed turns and whether it changes workspace files (it must not be treated as a filesystem rollback).
+- [ ] Verify whether a successful fork cut at Muse turn N excludes all later completed turns and whether it changes workspace files (it must not be treated as a filesystem rollback); blocked until the explicit fork call succeeds on a supported target.
 
-**Gate:** Restart resume is supported only if the target host reports durable sessions and the cursor replay tests pass. If not, remove restart-resume claims from v1 and revise the design before implementation.
+**Gate:** Restart resume is supported only for a matching runtime that reports durable sessions and passes cursor replay; the isolated echo host passed this subset, but a live Meta host remains unverified. The Muse 1.4.11/Linux fork failure is a hard stop for rewind/fork implementation: do not implement or advertise rewind until the runtime error is fixed or the explicit-cut probe passes on a supported target. Live model/media/UI-dependent work remains gated on the corresponding probes.
 
 ### Task 5: Probe OpenChamber UI and approval feasibility
 
@@ -191,7 +193,7 @@ Create focused modules; adjust names only to match actual pinned SDK exports, an
 
 - [ ] Test correlation header parsing, missing/invalid metadata, concurrent session isolation, and context-free `doGenerate` handling for stateless generation; test correlated `doGenerate` only if the pinned runtime exposes that path.
 - [ ] Test only new user content is sent; system/agent/project context follows §6.4 allowlist; tool catalogs and volatile system boilerplate are excluded.
-- [ ] Test image data maps to MSP image parts; video uses `media/upload` and an upload receipt; audio/PDF use a verified official path or produce a precise bridge-limitation error.
+- [ ] Test image data maps to MSP image parts; video chunks use UUIDv7 `commandId`s plus one shared `uploadId`, preserve chunk order, and yield a usable receipt; audio/PDF use a verified official path or produce a precise bridge-limitation error.
 - [ ] Test ordinary user text requesting JSON remains a normal prompt; map strict OpenCode `responseFormat` if the pinned MSP/CLI supports it, otherwise reject only that strict constraint. Do not fail merely because OpenCode supplied tool definitions; reject only an explicitly required OpenCode-side tool that cannot be represented.
 - [ ] Test remote media references are not fetched implicitly and size/cancellation errors occur before an unintended Muse turn.
 - [ ] Test OpenCode model/provider/profile and effort map to `session/start`/`session/setModel` and `turn/start.reasoningEffort`; no standing effort change occurs for a per-turn variant.

@@ -47,9 +47,10 @@ Exports were generated from Muse CLI `1.4.11-R6667.1` under `/tmp/opencode/`.
 - `session/tokenUsage.cumulative` is a running session snapshot; `turn/completed.usage` is the per-turn aggregate.
 - `turn/unqueued` means a queued turn was reclaimed before launch; `turn/started` marks launch.
 - `view/subscribe` can replay after an observed cursor; `view/gap` signals a missed range.
+- `session/start` and `session/resume` return a view head and attach the connection after it; explicit `view/subscribe({after})` is for replay/reattachment from an older observed cursor.
 - Sessions may be durable or ephemeral; restart recovery must verify durability from the target host.
 - `session/sideChat` requires a source session and opens a new side session empty; it is not a stateless generation API.
-- Durable command methods whose schema defines `commandId` use UUIDv7 idempotency handles; non-command operations such as `media/upload` and `view/subscribe` use their own upload IDs/cursors and must not be assigned invented command IDs.
+- Durable command methods whose schema defines `commandId` use UUIDv7 idempotency handles. Each `media/upload` chunk has a `commandId` plus the upload's shared `uploadId`; `view/subscribe` uses cursors and has no command ID.
 
 These are schema observations, not all live behavioral probes. Keep the probe outcomes below distinct from static declarations.
 
@@ -63,10 +64,13 @@ These are schema observations, not all live behavioral probes. Keep the probe ou
 | OpenCode session-scoped `session.generate` route | **Observed** | Invoked `model.request` with kind `generate` and a session ID, used `doStream`, and left OpenCode session messages byte-identical. Do not forward it as an ordinary turn to the live Muse session in v1. |
 | OpenCode stateless `/api/experimental/generate` with project-local provider | **Not reached at model boundary** | The route returned `Model unavailable` during base-config resolution before invoking the project-local provider. The opencode-claude reference notes this stateless route bypasses session hooks; v1 general stateless generation remains unsupported. |
 | Session-associated `doGenerate` path | **Not observed** | Tested ordinary and session-scoped routes invoked `doStream`; stateless generation did not resolve this project-local provider. `doGenerate` remains required by V3 but must not start an uncorrelated Muse turn. |
-| Muse session durability, cursor replay, command idempotency, turn lifecycle | **Not run against target CLI** | Live turn checks require working inference access; use subscription-backed Contributor mode as requested or configured PAYG |
-| Image/video/audio/PDF/strict-JSON through `muse serve` | **Not run** | Probe per format; do not infer MSP support from direct Model API docs |
+| Muse echo session durability, command idempotency, turn lifecycle, cursor replay, and reconnect | **PASS for the exercised protocol subset** | `MUSE_PROBE_PROVIDER=echo ./node_modules/.bin/bun run test/probes/msp-lifecycle.ts`: handshake reported durable; duplicate same-ID `turn/start` returned the same turn and emitted one `turn/started`; `session/start` attached notifications; unsubscribe/subscribe after the start cursor replayed the terminal exactly once; reconnect + `session/resume` returned the same session and replayed the terminal once. The echo turn completed with zero token usage and no assistant text/item deltas, so it does not verify live model output or usage. |
+| Muse explicit `session/fork.cutPoint` on Muse 1.4.11/Linux echo session | **FAIL — implementation blocker for rewind/fork** | The command returned JSON-RPC `-32603 internal`: `file birth time is unavailable`. The probe workspace, Git directory, and branch ref all reported birth times through OS metadata, so missing birth-time metadata in the test workspace does not explain the failure. Do not implement rewind/fork on this target until Meta fixes the runtime error or a supported runtime passes the probe. |
+| Muse `session/rename` on Muse 1.4.11/Linux | **FAIL — optional naming unavailable** | `sessionRename` was granted at initialize, but `session/rename` returned `-32603 internal: session naming is unavailable` on both an isolated echo session (before and after its turn) and a Meta-configured session start. Plugin-created sessions cannot be promised a custom label on this target. |
+| Muse live Meta lifecycle, view-gap recovery, cancel/interrupt/unqueue, approvals, media, and strict JSON | **BLOCKED / not run** | Echo does not generate assistant text or exercise approval/media/model behavior. A live Meta probe needs the user's working Muse inference access; do not change Contributor mode. |
+| Image/video/audio/PDF/strict-JSON through `muse serve` | **Not run live** | MSP declarations establish representable shapes, not runtime/model acceptance; probe each format with an authorized live model before implementing those paths. |
 | OpenChamber auth/approval/user-input UI feasibility | **Not run** | Conditional feature gate; no OpenChamber source changes in v1 |
 
 ## Credential-Safety Record
 
-For the version/schema discovery above, only `muse --version`, `opencode --version`, `muse schema --help`, offline schema export, and `npm view @muse-code/sdk version` were used. No Muse credential/config file was opened, and no model turn was sent.
+For schema discovery, only `muse --version`, `opencode --version`, `muse schema --help`, offline schema export, and `npm view @muse-code/sdk version` were used. The lifecycle probe used an isolated Muse home and the local `echo` provider; no Muse credential/config file was opened, no Contributor-mode setting was changed, and no live Meta inference was sent.

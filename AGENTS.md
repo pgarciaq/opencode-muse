@@ -17,7 +17,7 @@
 
 - Pin the OpenCode binary, Muse CLI, exported MSP schema, and `@muse-code/sdk` versions used for implementation and tests. Vendored schema assumptions must be checked against the pinned CLI.
 - Use the proven `aisdk:` language-model hook only after the request-correlation probe passes. Never infer session context from global “most recent request” state.
-- Preserve MSP command idempotency for methods whose schema defines `commandId`: persist/reuse it with the exact payload. Use method-specific upload IDs/cursors elsewhere; never invent command IDs. Never automatically replay an ambiguous side-effecting turn with a new ID.
+- Preserve MSP command idempotency for methods whose schema defines `commandId`: persist/reuse it with the exact payload. Each `media/upload` chunk has both a `commandId` and the upload's shared `uploadId`; `view/subscribe` is cursor-based and has no command ID. Never invent IDs or automatically replay an ambiguous side-effecting turn with a new command ID.
 - Subscribe to Muse session views and persist cursors; resume/replay through the protocol rather than assuming notifications were received.
 - In v1, use one `muse serve` process and one Muse session per OpenCode session. Respect workspace locking, explicit Muse fork cut points, and the documented lack of filesystem rollback on rewind.
 - Model and modality support is a bridge/protocol question, not an assumption about model capability. Map media and structured-output features when the pinned MSP/CLI supports them; report only specific unsupported bridge paths.
