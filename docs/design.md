@@ -184,7 +184,15 @@ The bridge never emits `tool-input-start`/`tool-call` parts. OpenCode's tools st
 
 **Resume.** Muse sessions survive CLI restarts (`session/resume` returns inline history). The plugin resumes instead of starting fresh whenever the registry has a muse session id and the workspace fingerprint matches.
 
-**Rewind / divergent history (decided).** OpenCode-side history edits (rewind, fork) never mutate muse's session. The bridge is session-authoritative: it never re-replays old context into the muse session after the first turn.
+**Rewind / divergent history (decided).** *Rewind* is the OpenCode/OpenChamber UI action that edits conversation history: the user picks an earlier point in the session and drops everything after it, then continues from there (`git reset` for the transcript). Session *fork* is the same idea keeping both branches. In a vanilla OpenCode setup this is trivial — OpenCode truncates its transcript and the next model call simply sends the shorter history. Here it is not, because the design has **two sources of truth**:
+
+```
+user rewinds to message #3
+        OpenCode transcript:  1 2 3 [4 5 dropped]      ← truncated
+        muse session:         1 2 3 4 5 ...            ← still remembers everything
+```
+
+The bridge only ever sends *new* user content to muse, so without intervention muse would keep reasoning from the discarded turns — the rewind would silently do nothing from the model's side. OpenCode-side history edits (rewind, fork) never mutate muse's session; the bridge is session-authoritative and never re-replays old context into the muse session after the first turn.
 - **Detection:** compare the incoming prompt's prior-message fingerprint with the registry's (`rev` counter); a backwards move = rewind/fork.
 - **Policy:** on rewind, `session/fork` a NEW muse session from the current one (preserves muse's runtime view of the workspace), re-point the registry, mark the old muse session abandoned. MVP alternative if `session/fork` proves awkward live: start a fresh muse session and seed it with one "state recap" turn derived from the truncated OpenCode transcript (rehydration), clearly marked in narration.
 - OpenCode fork (`--fork`) is just a new OpenCode session id → normal registry path (map to the same muse session? No: OpenCode forks are independent sessions; sharing a muse session across two OpenCode sessions would interleave context. Map forks to fresh muse sessions via fork/rehydration as above).
