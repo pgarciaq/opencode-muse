@@ -17,7 +17,7 @@
 - Keep Contributor mode enabled for the user's subscription-backed live tests; tests must not toggle account settings.
 - Pin OpenCode, Muse CLI, exported stable/experimental MSP schema, and SDK versions before interpreting protocol results.
 - No test may read `~/.config/muse`; test auth behavior through CLI/MSP boundaries and instrumented filesystem/process interfaces.
-- Every retry of a state-changing MSP request uses the exact same `commandId` and payload. Never automatically replay an ambiguous side-effecting turn.
+- For MSP methods whose schema defines `commandId`, every exact retry reuses that ID and payload. `media/upload` and `view/subscribe` use their method-specific upload IDs/cursors; do not invent `commandId`s. Never automatically replay an ambiguous side-effecting turn.
 - Test model capability and MSP bridge capability separately. Map supported media; assert narrow errors only for unsupported bridge paths.
 - Tests must not assert filesystem rollback on rewind; the plugin explicitly does not perform it.
 

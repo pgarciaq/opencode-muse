@@ -29,7 +29,7 @@ Evidence below includes the live spike/smoke test, source inspection, and vendor
 
 | Foundation | Evidence |
 | --- | --- |
-| `aisdk.hook("sdk" \| "language")` seam works for user plugins | Smoke test: provider `seam-smoke/echo` served a hand-rolled `LanguageModelV3`; run rendered its text, exit 0 |
+| `aisdk.hook("sdk" \| "language")` seam works for user plugins | Smoke test on OpenCode 2.1.1: provider `seam-smoke/echo` served a hand-rolled `LanguageModelV3`; run rendered its text, exit 0. The 2.1.2 implementation target still requires the correlation probe. |
 | Hook path engages **only** if the provider's `package` starts with `aisdk:` | Same smoke test: plain packages bypass hooks entirely |
 | No npm needed at plugin load: `aisdk:file://<module-url>` + a `create*` export lets the bundled dynamic-provider plugin build the SDK host object from the plugin module itself | Smoke test log: `createSeamSmoke called → sdk hook → language hook → doStream` |
 | OpenCode forwards its full builtin toolset (18 tools) into `doStream` params; a model that ignores them suppresses OpenCode tools **without any OpenCode-side config** | Smoke test: `forwarded-opencode-tools=18` |
@@ -48,13 +48,13 @@ Evidence below includes the live spike/smoke test, source inspection, and vendor
 | The current vendored `TurnInputPartType` includes `text`, `image`, `video`, and `skill`; image payload uses base64/media type, video uses a `media/upload` receipt; no direct `audio` or `pdf` turn part appears | Vendored stable schema; re-verify against the pinned Muse CLI schema |
 | Meta Model API model support for image/audio/video or structured JSON does not by itself prove the same feature is exposed through `muse serve`/MSP | Official [model capabilities](https://dev.meta.ai/docs/models) and [structured output guide](https://dev.meta.ai/docs/cookbook/structured-output); protocol requires separate verification |
 | `view/subscribe` can replay notifications after an observed cursor; `view/gap` signals a missed range | Vendored stable schema; re-verify against the pinned Muse CLI schema before implementation |
-| State-changing MSP commands carry UUIDv7 `commandId`s; turn/start and approval decisions echo IDs/turn state | Vendored stable schema; design requires durable idempotency handling |
+| Durable MSP command methods that define `commandId` use UUIDv7 idempotency handles; `media/upload` and `view/subscribe` use method-specific upload IDs/cursors | Vendored stable schema; do not invent command IDs for methods that omit them |
 | A session can be durable or ephemeral | Vendored stable schema; restart-resume must verify durable mode at runtime |
 
 ## 4. Architecture overview
 
 ```
-OpenChamber ── spawns ──> opencode serve (v2.1.1)
+OpenChamber ── spawns ──> opencode serve (2.1.2 target; prior smoke on 2.1.1)
                              │  loads plugins (.opencode/plugins or config "plugin")
                              ▼
                       opencode-muse plugin (this repo)
@@ -178,7 +178,7 @@ Rationale: a Muse turn generated about 13 internal model calls in one probe (§1
 
 For an agent-kind call the bridge:
 
-1. **Resolve the muse session** for the correlated OpenCode session (§6 correlation; §7). On first use, call `session/start` with the selected `providerId`, `modelId`, `workspaceRoot` and `approvalMode: "onRequest"` (if confirmed by the pinned CLI schema), then name it with `session/rename` using a non-sensitive label such as `opencode-muse <short session id>`—not the user's first prompt. Every state-changing MSP command gets a persisted UUIDv7 `commandId`; retries reuse the same ID.
+1. **Resolve the muse session** for the correlated OpenCode session (§6 correlation; §7). On first use, call `session/start` with the selected `providerId`, `modelId`, `workspaceRoot` and `approvalMode: "onRequest"` (if confirmed by the pinned CLI schema), then name it with `session/rename` using a non-sensitive label such as `opencode-muse <short session id>`—not the user's first prompt. For MSP methods whose schema defines a UUIDv7 `commandId`, persist/reuse it for an exact retry; use method-specific upload IDs/cursors for `media/upload` and view subscriptions.
 2. Apply the OpenCode selection before the turn: if it differs from the Muse session selection, call `session/setModel` with the full selected provider/model/profile and a `commandId`. `session/start` has no profile selection field in the pinned schema, so apply a non-default profile with `session/setModel` immediately after start. Map the selected effort variant to `turn/start.reasoningEffort` (per-turn override); do not change the standing session default unless the user explicitly changes that default.
 3. Build the input from the new user request plus the explicit host-context allowlist in §6.4. Never replay the entire OpenCode transcript as a new Muse turn.
    - user text → MSP text input items; file paths remain text unless file content is explicitly present in the allowed prompt context. V1 has no implicit file-upload or file-content injection path;
