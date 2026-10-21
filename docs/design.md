@@ -17,7 +17,7 @@
 ## 2. Compliance invariants (design-wide, tested in review)
 
 1. The plugin talks to Muse **only** through the `muse` CLI (host process over stdio JSON-RPC). No direct calls to Meta endpoints using any credential the CLI holds.
-2. The plugin **never parses or copies** `~/.config/muse/auth.json` or settings files. State is inferred exclusively from wire-level surfaces (handshake result, session/list, typed turn failures, CLI exit codes).
+2. The plugin **never parses or copies** `~/.config/muse/auth.json` or settings files — not even "safe" metadata fields (`subs_active`, `mechanism`, `user_email` live in the same JSON as the `access_token`, so field-level access is not enforceable: parsing the file loads the tokens into plugin memory, and one stray log line or error serializer becomes a leak). State is inferred exclusively from wire-level surfaces (handshake result, session/list, typed turn failures, CLI exit codes). If identity display is ever wanted, the sanctioned route is MSP `account/read` under the experimental capability flag — negotiated and typed, never file parsing.
 3. `muse login` remains the user's action; the plugin only relays its output (device code + instructions).
 4. Before public release, re-verify ToS position (§3.2/§13.4 cited in opencode-muse-auth#12) for "integration through the CLI as a client".
 
@@ -233,7 +233,7 @@ if (effect === "ask") { const reply = await pendingReply(id);        // await Op
 
 ## 11. Auth, state detection, and login UX
 
-- **No config parsing.** State comes from wire surfaces only:
+- **No config parsing.** The plugin never opens `~/.config/muse` (invariant §2.2): the file's metadata and secrets share one JSON document, and its schema is undocumented internal storage that can change in any patch release, whereas MSP surfaces are versioned. Detection is on-demand (sign-in card, first failed turn) and costs one host spawn. For identity display ("signed in as …"), use `account/read` behind the experimental capability flag if ever justified. State comes from wire surfaces only:
   - logged-out: `initialize` OK but `session/list`/`session/start` fail with the credentials-class error (host exit 3) → "run `muse login`" card;
   - logged-in without subscription: live-verified typed failure `402 Billing verification failed` (`modelError`, non-retryable) surfaced on the first turn → "no active Muse Code subscription — subscribe or set a pay-as-you-go key" (set via `muse auth set --provider meta --api-key-stdin`; `META_API_KEY` takes priority over account login — verified in CLI help).
 - **Sign-in integration method** (OpenCode integration domain, opencode-claude pattern): `authorize` spawns `muse login`, relays stdout (device code + URL instructions) into the UI, then polls a cheap state probe (`session/list`) until success; progress and errors are surfaced verbatim from the CLI.
