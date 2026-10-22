@@ -44,8 +44,9 @@ describe("MspHost", () => {
       createHandshake: () => fake.handshake,
     });
 
-    expect(transport.requests.find((request) => request.method === "initialize")?.params?.clientInfo)
-      .toEqual({ name: "opencode-muse", version: "0.1.0" });
+    const clientInfo = transport.requests.find((request) => request.method === "initialize")?.params?.clientInfo as { name?: string; version?: string };
+    expect(clientInfo).toEqual({ name: "opencode_muse", version: "0.1.0" });
+    expect(clientInfo.name).toMatch(/^[a-z0-9_]+$/);
     expect(host.initializeResult).toEqual({ schema: { fingerprint: EXPECTED_SCHEMA_FINGERPRINT } });
     await host.close();
     expect(fake.closeCount).toBe(1);

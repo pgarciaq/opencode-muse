@@ -41,7 +41,7 @@ Evidence below includes the live spike/smoke test, source inspection, and vendor
 | OpenCode forwards its full builtin toolset (18 tools) into `doStream` params; a model that ignores them suppresses OpenCode tools **without any OpenCode-side config** | Smoke test: `forwarded-opencode-tools=18` |
 | Meta-request classes (title generation, compaction) arrive as ordinary model calls; OpenCode rejects tool calls during summary generation | Listener capture of the `/title-gen` system prompt; opencode-cursor `request-classifier.ts` precedent |
 | Muse 1.4.11 has **no** client-side tool-disable knob (muse always advertises its 26-member `muse` toolset) | Probe Q1 (#1, fake-provider harness) |
-| `model/list` (stable) returns the full catalog with effort variants | Probe Q8 (#1) |
+| `model/list` (stable) returns a source-tagged catalog with effort variants | Q8 probe plus `test/probes/msp-catalog.ts` on Muse 1.4.11/Linux returned a Meta provider catalog (profile `tbh`, three rows); no inference turn was sent |
 | Failures are typed on the wire: `turn/completed` with `terminal="failed"`, `error.kind`, `retryable`; host exit 3 = credentials | Probes Q7 + live 402 |
 | Meta-request precedent: opencode-claude (`request-kind.ts`, `session-store.ts`) and opencode-cursor (`request-classifier.ts`) both detect title/summary requests and serve them off the live session | Source inspection |
 | OpenCode plugin context offers `permission.create`/`reply` (`allow\|deny\|ask`) and `session.synthetic` | Type inspection (#1 close-out) |
@@ -256,13 +256,13 @@ The bridge sends only new user input, so without intervention Muse would continu
 
 ## 8. Models and variants
 
-From `model/list` (stable surface, 5 models on provider `meta`; defaults e.g. `muse-spark-1.3-contributor` under contributor mode):
+From `model/list` (stable surface; the Muse 1.4.11 subscription probe returned three Meta models under profile `tbh`):
 
-- `Model.Info` per muse model: `modelId` as OpenCode model id, context/output limits, `released` date, display name (`displayLabel`), active/default flags map to `status`/`enabled`.
-- Preserve `providerId`, `profileId`, `modelId`, limits, and display metadata from `model/list` when building OpenCode models. On initial Muse session start pass the selected model/provider; on subsequent picker changes call `session/setModel`.
+- `Model.Info` per Muse model: preserve `displayLabel`, context/output limits, release date, and known effort variants. OpenCode `Model.Info` has no `profileId`, `isActive`, or `isDefault` fields, so build a sidecar index keyed by the composite OpenCode model ID and retain those Muse values there; do not mis-map session activity into OpenCode `status`/`enabled`.
+- Build a stable OpenCode model ID from profile + Muse model ID; set `modelID` to Muse's selectable `modelId` and `providerID` to `muse`. Resolve `providerId`, `profileId`, `defaultReasoningEffort`, `isActive`, and `isDefault` through the sidecar index. On initial Muse session start pass the selected model/provider/profile; on subsequent picker changes call `session/setModel`.
 - Effort tiers (`minimal…max`, per-model subsets) → OpenCode **variants**. Pass the selected tier in `turn/start.reasoningEffort` for that turn; use `session/setReasoningEffort` only for an explicit persistent-default change. Hide/disable variants when the catalog says effort is unknown.
-- **Fallback catalog (required, not optional).** OpenCode removes providers with **zero models** from `provider.list()`, hiding them in OpenChamber. Ship a static seed of known model IDs, clearly marked stale/unavailable as needed. A placeholder may keep the provider visible only if the UI can mark it non-runnable and explain setup; do not advertise a fake selectable model that fails later without explanation. Refresh from `model/list` once available.
-- Catalog refresh: update the plugin's cached catalog first, then call `provider.reload()`; verify this actually re-runs the provider transform/model discovery in the pinned OpenCode version. Retain the last good catalog if refresh fails.
+- **Fallback catalog (required, not optional).** OpenCode removes providers with **zero models** from `provider.list()`, hiding them in OpenChamber. Ship a clearly labeled, disabled `Muse setup required — run muse login, then refresh providers` placeholder. It is never runnable and is replaced only by live `model/list` rows. Live fallback visibility on OpenCode 2.1.2 remains unverified because the provider-list endpoint hangs even in an empty project.
+- Catalog refresh: a short-lived, sessionless `muse serve --provider meta` host calls `model/list` during plugin setup, then closes; persistent turn hosts remain one per OpenCode session. Update the plugin's cached catalog first, then call `provider.reload()`; the fake integration test proves the ordering, but pinned OpenCode runtime reload behavior remains unverified. Retain the last good catalog if refresh fails.
 
 ## 9. Narration (muse tool/file activity → OpenCode transcript)
 

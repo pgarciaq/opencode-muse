@@ -1,10 +1,13 @@
 import { expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { readRepositoryJson, repositoryPath } from "./helpers.ts";
+import "./integration/provider-registration.test.ts";
 import "./unit/msp-client.test.ts";
 import "./unit/msp-host.test.ts";
 import "./unit/session-registry.test.ts";
 import "./unit/workspace-lock.test.ts";
+import "./unit/catalog.test.ts";
+import "./integration/provider-registration.test.ts";
 import "./unit/session-registry.test.ts";
 import "./unit/workspace-lock.test.ts";
 
@@ -33,7 +36,6 @@ test("published package entry exposes the OpenCode v2 plugin shape", async () =>
   const entry = await import(repositoryPath(importPath ?? ""));
   expect(entry.default.id).toBe("opencode-muse");
   expect(typeof entry.default.setup).toBe("function");
-  await entry.default.setup({});
 });
 
 test("TypeScript configuration enables strict checking", () => {

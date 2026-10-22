@@ -16,7 +16,7 @@
 - The plugin must never open, parse, copy, cache, log, or transmit `~/.config/muse` or Muse credential values.
 - No OpenChamber source changes in v1; verify UI surfaces before promising auth/approval UI.
 - Pin and test against exact OpenCode and Muse CLI/schema versions; schema declarations not matched to the binary are provisional.
-- One `muse serve` process and one Muse session per OpenCode session in v1.
+- One persistent `muse serve` process and one Muse session per OpenCode session for turns in v1; a short-lived, sessionless host may query `model/list` during provider discovery.
 - V1 maps image/video through verified MSP parts; probe audio/PDF/strict JSON paths and report only bridge-specific limits. General stateless `generate` remains unsupported, and the plugin never fabricates `userInput/*` answers.
 - Muse approval decisions use only currently offered `choiceId` + `requirementId`; no plugin-side persistent auto-allow.
 - No automatic transcript rehydration or filesystem rollback on rewind; ambiguous side-effecting turns are never replayed automatically. Rewind/fork implementation stays blocked until explicit `session/fork.cutPoint` succeeds on a supported target runtime.
@@ -179,12 +179,13 @@ Create focused modules; adjust names only to match actual pinned SDK exports, an
 
 **Interfaces:** `buildOpenCodeCatalog(museCatalog, fallbackCatalog) -> ModelInfo[]`; `createProviderPlugin(ctx) -> Promise<void>`. Register provider ID `muse`, package `aisdk:${import.meta.url}`, and `createMuse` factory; apply live catalog refresh through `ctx.provider.reload()` only after replacing the cached catalog.
 
-- [ ] Test mapping of Muse `providerId`, `profileId`, `modelId`, labels, context/output limits, release date, active/default status, and known effort variants.
-- [ ] Run the catalog mapping tests and verify they fail for the unimplemented mapping.
-- [ ] Test a logged-out/empty Muse catalog retains a clearly stale or disabled static catalog; ensure no fake model appears runnable without explanation.
-- [ ] Test refresh preserves the last good catalog on failure and that provider reload actually re-runs discovery on the pinned OpenCode build.
-- [ ] Implement registration with the proven `aisdk:file://` seam and a named drift diagnostic. Keep the npm `aisdk:@ai-sdk/openai-compatible` path documented as fallback, not a second untested primary.
-- [ ] Run unit/integration tests, `npm run build`, and a live `opencode models`/provider-list smoke test.
+- [x] Test mapping of Muse `providerId`, `profileId`, `modelId`, labels, context/output limits, release date, active/default sidecar status, and known effort variants.
+- [x] Run the catalog mapping tests red against the missing implementation and then green.
+- [x] Test an empty/fake catalog retains a clearly labeled, disabled fallback placeholder; no fallback model is runnable.
+- [x] Test refresh preserves the last good catalog on fetch or reload failure; the fake provider integration verifies cache replacement precedes `provider.reload()`.
+- [x] Implement registration with the proven `aisdk:file://` seam and named drift diagnostic. The npm `aisdk:@ai-sdk/openai-compatible` path remains documented only as a fallback.
+- [x] Run focused catalog/registration tests, `npm run build`, strict test type-check, and live `muse model/list` discovery (no inference).
+- [ ] Verify pinned OpenCode 2.1.2 provider discovery/reload with `test/probes/provider-list-smoke.sh`; current `opencode models` and `provider.list` endpoints hang even in an empty project without the Muse plugin, so this runtime gate is blocked by the local OpenCode baseline.
 
 ### Task 9: Implement request context, input validation, and selection routing
 

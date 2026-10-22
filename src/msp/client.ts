@@ -183,7 +183,7 @@ export class MspClient {
     return this.observedProtocolFailure;
   }
 
-  command<TResult extends Record<string, unknown> = Record<string, unknown>>(
+  command<TResult extends object = Record<string, unknown>>(
     method: string,
     paramsWithCommandId: Record<string, unknown> & { commandId: string },
     options: Omit<CommandOptions, "commandId"> = {},
@@ -206,7 +206,7 @@ export class MspClient {
     }) as Promise<TResult>;
   }
 
-  request<TResult extends Record<string, unknown> = Record<string, unknown>>(
+  request<TResult extends object = Record<string, unknown>>(
     method: string,
     params?: Record<string, unknown>,
   ): Promise<TResult> {

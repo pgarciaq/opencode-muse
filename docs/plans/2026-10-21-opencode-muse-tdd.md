@@ -100,10 +100,10 @@ The compatibility probes in Tasks 1, 2, 4, and 5 of the implementation plan are 
 
 **Files:** `src/catalog.ts`, `src/provider.ts`, `src/index.ts`, `test/unit/catalog.test.ts`, `test/integration/provider-registration.test.ts`.
 
-- **Red:** Add `catalog.mapsMuseProviderProfileAndEffort`, `catalog.keepsFallbackWhenLoggedOut`, `catalog.retainsLastGoodCatalogOnRefreshFailure`, and `provider.registersMuseViaFileFactory`.
-- **Green:** Convert `model/list` rows to OpenCode model entries; register `muse`, the static fallback, `aisdk:file://` factory, and `language` hook. Refresh cache before `provider.reload()`.
+- **Red:** Add `catalog.mapsMuseProfileModelLimitsAndEffortSidecar`, `catalog.keepsDisabledSetupFallback`, `catalog.retainsLastGoodCatalogOnFetchOrReloadFailure`, `provider.registersMuseViaFileFactory`, and `provider.setupReturnsBeforeCatalogNetworkDiscoveryFinishes`.
+- **Green:** Convert `model/list` rows to OpenCode model entries; preserve profile/default/active metadata in a sidecar because `Model.Info` lacks those fields; register `muse`, the disabled setup fallback, `aisdk:file://` factory, and named language-hook drift diagnostic. Refresh cache before calling `provider.reload()` and do not block plugin setup on catalog network discovery. The real `language` hook is implemented in Slice 8.
 - **Refactor:** Keep Muse-to-OpenCode mapping pure and provider wiring thin.
-- **Verification:** `bun test test/unit/catalog.test.ts test/integration/provider-registration.test.ts`, `npm run build`, and pinned OpenCode provider-list smoke test.
+- **Verification:** `bun test test/unit/catalog.test.ts test/integration/provider-registration.test.ts`, `npm run build`, live `muse model/list` probe, and pinned OpenCode provider-list smoke test. The latter is currently blocked because `opencode models` and `provider.list` hang on an empty project without the plugin.
 
 ### Slice 6: Prompt/context extraction and input capability mapping
 

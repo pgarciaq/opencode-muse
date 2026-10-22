@@ -155,7 +155,7 @@ export class MspHost {
     }
 
     const initializeParams = {
-      clientInfo: options.clientInfo ?? { name: "opencode-muse", version: "0.1.0" },
+      clientInfo: options.clientInfo ?? { name: "opencode_muse", version: "0.1.0" },
     };
     const timeoutMs = options.startupTimeoutMs ?? 20_000;
     const initializing = handshake.initialize(initializeParams);
@@ -188,7 +188,7 @@ export class MspHost {
     return this.state !== "open";
   }
 
-  command<TResult extends Record<string, unknown> = Record<string, unknown>>(
+  command<TResult extends object = Record<string, unknown>>(
     method: string,
     paramsWithCommandId: Record<string, unknown> & { commandId: string },
   ): Promise<TResult> {
@@ -199,7 +199,7 @@ export class MspHost {
     });
   }
 
-  request<TResult extends Record<string, unknown> = Record<string, unknown>>(
+  request<TResult extends object = Record<string, unknown>>(
     method: string,
     params?: Record<string, unknown>,
   ): Promise<TResult> {
