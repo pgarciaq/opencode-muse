@@ -52,6 +52,18 @@ describe("MspHost", () => {
     expect(fake.closeCount).toBe(1);
   });
 
+  test("mspHost.mintsCommandIdsFromItsOwnSdkConnection", async () => {
+    const transport = new FakeMspTransport((request) => request.method === "initialize"
+      ? { schema: { fingerprint: EXPECTED_SCHEMA_FINGERPRINT } }
+      : {});
+    const fake = fakeHandshake(transport);
+    const host = await MspHost.start({}, { createHandshake: () => fake.handshake });
+    const commandId = host.mintCommandId();
+
+    expect(commandId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    await host.close();
+  });
+
   test("mspHost.startTimeoutClosesTheHalfStartedHandshake", async () => {
     let closeCount = 0;
     const hostPromise = MspHost.start({ startupTimeoutMs: 10 }, {

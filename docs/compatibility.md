@@ -44,7 +44,7 @@ Exports were generated from Muse CLI `1.4.11-R6667.1` under `/tmp/opencode/`.
 - `TurnInputPartType` is `text | image | skill | video`; the image part carries base64/media type, and the video part carries a receipt from `media/upload`. There is no direct audio or PDF turn part in this schema.
 - `turn/start` has no direct `responseFormat`/JSON-schema field. Strict structured output through `muse serve` remains unproven; ordinary JSON text prompts are unaffected.
 - `session/fork` without `cutPoint` copies all completed turns; a rewind requires `cutPoint.lastTurnId`.
-- `session/tokenUsage.cumulative` is a running session snapshot; `turn/completed.usage` is the per-turn aggregate.
+- `session/tokenUsage.cumulative` is a running session snapshot; never sum it. `session/tokenUsage.usage` is per model completion and `turn/completed.usage` is an optional turn aggregate. The bridge deduplicates per-completion usage by view cursor and prefers the final aggregate; when neither exists, usage counters remain unknown.
 - `turn/unqueued` means a queued turn was reclaimed before launch; `turn/started` marks launch.
 - `view/subscribe` can replay after an observed cursor; `view/gap` signals a missed range.
 - `session/start` and `session/resume` return a view head and attach the connection after it; explicit `view/subscribe({after})` is for replay/reattachment from an older observed cursor.

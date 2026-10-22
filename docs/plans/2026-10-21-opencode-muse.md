@@ -207,17 +207,21 @@ Create focused modules; adjust names only to match actual pinned SDK exports, an
 
 **Files:**
 - Create: `src/model/language-model.ts`, `src/model/stream.ts`
+- Create: `src/session/manager.ts`, `test/unit/session-manager.test.ts`
 - Create: `test/unit/language-model.test.ts`, `test/unit/stream-mapping.test.ts`, `test/integration/turn-bridge.test.ts`
+- Modify: `src/index.ts`, `src/provider.ts`
 
-**Interfaces:** `createMuseLanguageModel(runtime) -> LanguageModelV3`; shared `runMuseTurn(context, input, options) -> AsyncIterable<MspNotification>`; adapters implement `doStream` and `doGenerate` using the same turn lifecycle.
+**Interfaces:** `createMuseLanguageModel(runtime) -> LanguageModelV3`; `runMuseTurn(context, input, options) -> Promise<MuseTurnExecution>`; `MuseSessionManager.resolveSession(context)` creates/reuses one host/session, binds provider/model/profile, persists the mapping, and returns cursor/turn/lock callbacks. `doStream` and `doGenerate` share the same Muse turn execution.
 
-- [ ] Write fake-MSP tests for text start/delta/end, reasoning if present, retry notifications, cancellation, successful terminal, typed failure, zero-text response, and unknown terminal values.
-- [ ] Run the tests against the empty adapter and confirm they fail for missing behavior.
-- [ ] Assert V3 `finishReason` is object form, usage uses flat number keys, and no OpenCode tool-call parts are emitted; strict JSON/forced OpenCode tool behavior matches the capability result from Task 4.
-- [ ] Test `turn/start` dispositions and authoritative `turnId`; queued/unqueue events must not be treated as a running turn.
-- [ ] Implement V3 stream-start/text/reasoning/error/finish mapping; reject before stream creation for startup failures and emit the V3 error part for asynchronous failures.
-- [ ] Test `doGenerate` collects the same response and usage without creating a second Muse turn; assert `abortSignal` targets only the active turn.
-- [ ] Run unit/integration tests and the pinned OpenCode echo-to-Muse bridge smoke test.
+- [x] Write fake-MSP tests for text start/delta/end, summarized reasoning, cancellation, successful/failed/zero-text terminals, unknown terminal values, and one session per OpenCode session.
+- [x] Run tests red against the missing stream/session-manager modules and verify the intended behavior failures.
+- [x] Assert object-form V3 `finishReason`, flat usage keys, no OpenCode tool-call parts, no usage fabrication, and no secret/error-text leakage. Strict JSON/forced OpenCode tool constraints are rejected by Task 9 preflight.
+- [x] Test `turn/start` authoritative `turnId` and `disposition`; queued turns are unqueued on abort; running turns are interrupted.
+- [x] Implement V3 text/reasoning/error/finish mapping, authoritative-completion reconciliation, foreground response finish, and continued monitoring/lock ownership through final terminal. Preflight/startup errors reject before stream creation; asynchronous failures emit a V3 error part.
+- [x] Test `doGenerate` returns the same foreground response without creating a second Muse turn; final terminal updates are still monitored until release.
+- [x] Wire `ctx.aisdk.hook("language")` to the catalog sidecar and per-session manager; preserve the named factory drift diagnostic.
+- [x] Run fake-MSP unit/integration tests, package build, and strict test type-check.
+- [ ] Pinned OpenCode echo-to-Muse runtime smoke remains blocked: `opencode models --standalone` timed out after 15s with an empty project and the plugin installed; the same CLI path also times out without the plugin. Re-run once the OpenCode baseline returns. See `docs/compatibility.md`.
 
 ### Task 11: Add local title, compaction, and history lineage
 
@@ -236,19 +240,19 @@ Create focused modules; adjust names only to match actual pinned SDK exports, an
 ### Task 12: Add Muse session lifecycle, restart recovery, and rewind
 
 **Files:**
-- Create: `src/session/manager.ts`
 - Create: `test/integration/session-recovery.test.ts`, `test/integration/rewind-fork.test.ts`
-- Modify: `src/session/registry.ts`, `src/msp/client.ts`
+- Modify: `src/session/manager.ts`, `src/session/registry.ts`, `src/msp/client.ts`
 
 **Interfaces:** `resolveSession(context) -> MuseSessionBinding`; `startOrResume(binding) -> MspSession`; `forkAt(binding, lastRetainedTurnId) -> MuseSessionBinding`; `recoverPendingTurn(binding) -> RecoveryResult`.
 
 - [ ] Test one host/session, durable session check, `session/start` + non-sensitive rename, cursor persistence, `session/resume`, view replay, and host reaping only when no work is pending.
 - [ ] Test crash after command write but before ack, after ack but before events, during stream, and after foreground completion; no test may silently submit a new command ID for the same user turn.
 - [ ] Test same-ID retry only when exact payload is deterministically reconstructed; otherwise assert recovery returns “user choice required” without replay.
-- [ ] Test rewind at a mapped completed Muse turn uses explicit `cutPoint.lastTurnId`; unmappable/mid-turn boundary returns a clear error; old Muse session remains available as the preserved branch.
-- [ ] Test OpenCode fork creates an independent Muse session and does not share a live session; filesystem is never rolled back by the bridge.
+- [ ] Ensure process restart resumes only durable sessions and replays from the persisted cursor without duplicate/lost output; ambiguous pending turns require explicit user choice.
+- [ ] Keep rewind/fork excluded from v1 and tracked by #20; transcript divergence without a supported explicit Muse fork returns a clear fresh-session-required error and never replays old prompts.
+- [ ] OpenCode forks start a fresh independent Muse session when rewind is unavailable; workspace files are never rolled back by the bridge.
 - [ ] Run recovery/fork tests against the unimplemented manager and verify they fail for the expected missing transitions.
-- [ ] Implement session resolution, durable resume/view replay, explicit-cut fork mapping, recovery state transitions, and host/workspace-lock ownership in `src/session/manager.ts`.
+- [ ] Implement durable resume/view replay and recovery state transitions in `src/session/manager.ts`; explicit-cut fork mapping remains deferred to #20.
 - [ ] Run integration tests against fake MSP, then the opt-in PAYG lifecycle probe on the pinned CLI.
 
 ### Task 13: Add approval bridge and narration (conditional on UI gate)

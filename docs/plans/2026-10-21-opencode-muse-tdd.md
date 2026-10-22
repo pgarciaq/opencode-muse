@@ -117,13 +117,13 @@ The compatibility probes in Tasks 1, 2, 4, and 5 of the implementation plan are 
 
 ### Slice 7: LanguageModelV3 event bridge
 
-**Files:** `src/model/language-model.ts`, `src/model/stream.ts`, `src/errors.ts`, `test/unit/stream-mapping.test.ts`, `test/unit/language-model.test.ts`.
+**Files:** `src/model/language-model.ts`, `src/model/stream.ts`, `src/session/manager.ts`, `src/provider.ts`, `src/index.ts`, `src/errors.ts`, `test/unit/stream-mapping.test.ts`, `test/unit/language-model.test.ts`, `test/unit/session-manager.test.ts`, `test/integration/turn-bridge.test.ts`.
 
-- **Red:** Add `stream.emitsTextStartDeltaEndAndFinish`, `stream.usesObjectFinishReasonAndFlatUsage`, `stream.emitsTypedErrorForAsyncFailure`, `stream.emitsNoOpenCodeToolCalls`, and `languageModel.doGenerateUsesOneMuseTurn`.
-- **Green:** Implement shared Muse transaction for `doStream`/`doGenerate`; map assistant items to V3 parts, `turn/completed.usage` to flat V3 usage, and failures to the verified V3 error path.
-- **Red/Green disposition tests:** Assert `turn/start` disposition and `turnId` are authoritative; queued/unqueue events are not treated as started turns.
+- **Red:** Add `stream.emitsTextStartDeltaEndAndFinish`, `stream.usesObjectFinishReasonAndPerCallUsageFallback`, `stream.emitsTypedErrorForAsyncFailure`, `stream.emitsNoOpenCodeToolCalls`, `languageModel.doGenerateUsesOneMuseTurn`, `languageModel.uploadsVideoWithStableReceipt`, and `sessionManager.createsAndResolvesOneSessionPerOpenCodeSession`.
+- **Green:** Implement shared Muse transaction for `doStream`/`doGenerate`; map agent items to V3 parts, reconcile completed text against streamed deltas, finish the OpenCode response at `turn/foregroundCompleted`, and continue the monitor through `turn/completed` before clearing the active-turn marker/releasing the lock. Prefer `turn/completed.usage`; otherwise sum deduplicated `session/tokenUsage` per-call counters (never cumulative snapshots); leave unknown usage unknown.
+- **Red/Green disposition tests:** Assert `turn/start` disposition and `turnId` are authoritative; queued/unqueue events are not treated as started turns. Abort interrupts a running turn or unqueues a queued turn, never silently upgrades one operation to the other.
 - **Refactor:** Deduplicate stream/generate collection without hiding cancellation or error behavior.
-- **Verification:** `bun test test/unit/stream-mapping.test.ts test/unit/language-model.test.ts`; pinned OpenCode fake-MSP smoke test proves zero OpenCode tool-call parts.
+- **Verification:** `bun test test/unit/stream-mapping.test.ts test/unit/language-model.test.ts test/unit/session-manager.test.ts test/integration/turn-bridge.test.ts`; 108 package tests, build, and strict test type-check pass. The external pinned OpenCode runtime smoke is separately blocked because its empty-project CLI/provider-list baseline times out.
 
 ### Slice 8: Model routing, effort, and failure UX
 
@@ -148,8 +148,8 @@ The compatibility probes in Tasks 1, 2, 4, and 5 of the implementation plan are 
 **Files:** `src/session/manager.ts`, `src/session/registry.ts`, `src/session/workspace-lock.ts`, `test/integration/session-recovery.test.ts`, `test/integration/rewind-fork.test.ts`.
 
 - **Red:** Add crash-point tests for before ack, after ack, mid-stream, after `turn/foregroundCompleted`, and view gap; assert no new command ID is used for an ambiguous side effect.
-- **Red:** Add `rewind.forksAtMappedLastRetainedMuseTurn`, `rewind.rejectsUnmappableBoundary`, `fork.usesSeparateMuseSession`, and `rewind.doesNotRollbackFilesystem`.
-- **Green:** Implement recovery from durable session/cursor state, exact same-ID retries only with deterministic payload reconstruction, explicit `cutPoint.lastTurnId`, and clear user-choice recovery on ambiguity.
+- **Red:** Add `recovery.rejectsAmbiguousPendingCommand`, `recovery.resumesDurableSessionAtCursor`, `rewind.failsClearlyWhileForkGateIsBlocked`, `fork.usesSeparateMuseSessionWhenAvailable`, and `rewind.doesNotRollbackFilesystem`.
+- **Green:** Implement recovery from durable session/cursor state and exact same-ID retries only with deterministic payload reconstruction. Rewind/fork stays unsupported in v1 and is restored only under follow-up #20 after the runtime gate passes.
 - **Green:** Acquire a workspace lock before the Muse turn and retain it through terminal completion/pending approval/background activity.
 - **Refactor:** Keep registry transitions atomic and session manager as the sole owner of host/lock lifetimes.
 - **Verification:** `bun test test/integration/session-recovery.test.ts test/integration/rewind-fork.test.ts`; opt-in PAYG test proves pinned CLI durability and replay.

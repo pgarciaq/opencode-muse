@@ -1,17 +1,18 @@
 import { expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { readRepositoryJson, repositoryPath } from "./helpers.ts";
-import "./integration/provider-registration.test.ts";
-import "./unit/request-context.test.ts";
-import "./unit/prompt.test.ts";
 import "./unit/msp-client.test.ts";
 import "./unit/msp-host.test.ts";
 import "./unit/session-registry.test.ts";
 import "./unit/workspace-lock.test.ts";
 import "./unit/catalog.test.ts";
 import "./integration/provider-registration.test.ts";
-import "./unit/session-registry.test.ts";
-import "./unit/workspace-lock.test.ts";
+import "./unit/request-context.test.ts";
+import "./unit/prompt.test.ts";
+import "./unit/stream-mapping.test.ts";
+import "./unit/language-model.test.ts";
+import "./unit/session-manager.test.ts";
+import "./integration/turn-bridge.test.ts";
 
 interface PackageMetadata {
   exports?: {

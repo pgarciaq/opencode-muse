@@ -10,7 +10,12 @@ export type MuseBridgeErrorCode =
   | "MUSE_REGISTRY_ERROR"
   | "MUSE_REGISTRY_STORAGE_ERROR"
   | "MUSE_WORKSPACE_BUSY"
-  | "MUSE_WORKSPACE_LOCK_CORRUPT";
+  | "MUSE_WORKSPACE_LOCK_CORRUPT"
+  | "MUSE_TURN_FAILED"
+  | "MUSE_TURN_UNQUEUED"
+  | "MUSE_UNSUPPORTED_REQUEST"
+  | "MUSE_UNSUPPORTED_INPUT"
+  | "MUSE_RECOVERY_CHOICE_REQUIRED";
 
 /** Safe plugin error: never attach raw CLI stderr, MSP text, prompts, or payloads. */
 export class MuseBridgeError extends Error {
@@ -140,5 +145,44 @@ export class WorkspaceLockCorruptError extends MuseBridgeError {
   constructor() {
     super("MUSE_WORKSPACE_LOCK_CORRUPT", "Workspace lock is corrupt; refusing to assume it is stale", false);
     this.name = "WorkspaceLockCorruptError";
+  }
+}
+
+export class MuseTurnFailedError extends MuseBridgeError {
+  readonly turnErrorKind: string;
+
+  constructor(turnErrorKind: string, retryable: boolean | undefined) {
+    const safeKind = /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(turnErrorKind) ? turnErrorKind : "unknown";
+    super("MUSE_TURN_FAILED", `Muse turn failed (${safeKind})`, retryable);
+    this.turnErrorKind = safeKind;
+    this.name = "MuseTurnFailedError";
+  }
+}
+
+export class MuseTurnUnqueuedError extends MuseBridgeError {
+  constructor() {
+    super("MUSE_TURN_UNQUEUED", "Muse queued turn was reclaimed before it started", false);
+    this.name = "MuseTurnUnqueuedError";
+  }
+}
+
+export class MuseUnsupportedRequestError extends MuseBridgeError {
+  constructor(readonly requestKind: string) {
+    super("MUSE_UNSUPPORTED_REQUEST", `Muse bridge does not support this request kind (${requestKind})`, false);
+    this.name = "MuseUnsupportedRequestError";
+  }
+}
+
+export class MuseUnsupportedInputError extends MuseBridgeError {
+  constructor(readonly inputKind: string) {
+    super("MUSE_UNSUPPORTED_INPUT", `Muse bridge cannot represent this input kind (${inputKind})`, false);
+    this.name = "MuseUnsupportedInputError";
+  }
+}
+
+export class MuseRecoveryChoiceRequiredError extends MuseBridgeError {
+  constructor() {
+    super("MUSE_RECOVERY_CHOICE_REQUIRED", "A prior Muse command has an unknown outcome; inspect or resume the session before continuing", false);
+    this.name = "MuseRecoveryChoiceRequiredError";
   }
 }

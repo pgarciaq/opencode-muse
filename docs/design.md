@@ -144,7 +144,7 @@ The dynamic plugin expects a `model()`-less factory that yields an SDK host; our
 
 ## 6. The language bridge — `LanguageModelV3` over MSP
 
-One bridge object per selected model/variant, with session-scoped routing metadata from the correlation carrier. Implement both `doStream` and `doGenerate` through a shared Muse transaction and event collector; do not assume OpenCode streams every request.
+One bridge object per selected model/variant, with session-scoped routing metadata from the correlation carrier. `doStream` and `doGenerate` share one Muse transaction and event mapper; `doGenerate` does not start a second turn. The per-OpenCode-session manager owns one Muse host/session, persists mapping and turn metadata, and acquires the workspace lock for each call.
 
 **Request correlation (hard Phase-1 gate).** `doStream` gets the prompt and tool definitions, not a typed OpenCode session context. The `session.hook("model.request")` layer stamps namespaced headers with `{sessionID, directory, kind, modelID, providerID, variant}`; the V3 bridge must read them from call options. The pinned OpenCode 2.1.2 probe passed for two concurrent sessions and `title`/`primary` calls: session ID, directory, kind, model/provider ID, and variant survived into `doStream`. It did **not** expose a direct `profileID` property on `request.model`; resolve the Muse profile from the selected catalog/model mapping. The same probe observed session-scoped `session.generate` calls with kind `generate` and a session ID; the OpenCode transcript remained unchanged. Stateless `/api/experimental/generate` was not reachable through the project-local provider and remains unsupported in v1. Tested paths invoked `doStream`, not `doGenerate`; retain a separate compatibility probe for any session-associated `doGenerate` path. If session-associated correlation is incomplete or racy, stop and use the local-proxy architecture, where headers are explicit. Never infer the active session by “most recent request” or a global mutable variable; concurrent title/compaction/agent calls make that racy.
 
@@ -194,17 +194,17 @@ For an agent-kind call the bridge:
    - video parts → upload via MSP `media/upload` chunks, each with its own persisted/reused UUIDv7 `commandId` and the same client-minted `uploadId`; then send `type:"video"` with the receipt. Test chunk ordering, retries, size, cancellation, and errors; do not reject merely because upload plumbing is required.
    - audio and PDF parts → probe for a supported `muse serve`/MSP or official CLI path. The current vendored turn schema has no direct audio/PDF part; if no supported route exists in the pinned CLI, report that specific bridge limitation rather than claiming the model lacks the capability. File paths in the workspace remain ordinary text and Muse may use its own workspace tools to read them.
 4. `session/start` and `session/resume` attach the connection to the session view automatically at the returned `viewCursor`; persist that cursor and consume notifications in cursor order. Do not send a redundant `view/subscribe` on initial attach. For recovery from an older persisted cursor or after `view/unsubscribe`, explicitly call `view/subscribe({sessionId, after:lastPersistedCursor})` to replay the missed range before live events; handle `view/gap` via `view/page` (§7).
-5. Call `turn/start`, inspect its `disposition` and authoritative `turnId`, then translate the view stream into V3 stream parts:
+5. Call `turn/start`, inspect its `disposition` and authoritative `turnId`, then translate the view stream into V3 stream parts. The V3 response finishes at `turn/foregroundCompleted`; the session monitor continues draining through `turn/completed` before clearing the active-turn marker or releasing the workspace lock. If no foreground terminal is produced, finish at `turn/completed`:
 
 | Muse event | Bridge → V3 part |
 | --- | --- |
 | Stream begins | `stream-start {warnings:[]}` |
 | `item/started` (assistant text) | `text-start {id}` |
 | `item/delta` (text) | `text-delta {id, delta}` |
-| `item/completed` (assistant text) | `text-end {id}` |
+| `item/completed` (assistant text) | `text-end {id}`; reconcile a missing authoritative suffix, but fail safely if completed text contradicts text already streamed |
 | reasoning item deltas (if muse emits them) | `reasoning-start/delta/end` (build-time probe) |
 | `item/…` (tool/file events) | **not** model output → narration path (§9) |
-| `session/tokenUsage` (notification) | cumulative member is a session snapshot—never sum snapshots. For provisional foreground usage, count each per-call `usage` at most once keyed by turn/view cursor; final turn aggregate comes from `turn/completed.usage` |
+| `session/tokenUsage` (notification) | cumulative member is a session snapshot—never sum snapshots. For provisional foreground usage, count each per-call `promptTokens`/`totalTokens` and output/reasoning counter once keyed by turn/view cursor; prefer the aggregate at `turn/completed.usage` when present, otherwise keep the deduplicated per-call total. If neither reports usage, pass unknown counters rather than inventing zeroes. |
 | `turn/completed` terminal `completed` | `finish { finishReason:{unified:"stop"}, usage }`, using this event's per-turn aggregate usage |
 | `turn/completed` terminal `failed` | if streaming already began, emit the V3 `{type:"error", error}` part with a safe typed error and close; if failure precedes stream creation, reject `doStream`/`doGenerate`. Preserve Muse `error.kind` and `retryable`; map only verified billing/auth failures to actionable UI text (§11) |
 | `turn/completed` terminal `cancelled` | `finish { finishReason:{unified:"other"} }`; unknown future terminal values are surfaced without guessing |
@@ -212,9 +212,9 @@ For an agent-kind call the bridge:
 | `turn/started` | mark the accepted turn as running; match by returned `turnId` |
 | `turn/unqueued` | the queued turn was reclaimed before launch; resolve that OpenCode request as cancelled/retracted, not as started |
 | `turn/retracted` | end the stream with `finish { finishReason:{unified:"other"} }` |
-| `turn/foregroundCompleted` | finish the OpenCode V3 stream here (foreground answer is ready); keep the Muse view monitor, host, and workspace lock until `turn/completed`. Report usage known at foreground completion; reconcile final aggregate usage/terminal status in the registry. Verify this event's actual behavior before implementation. |
+| `turn/foregroundCompleted` | finish the OpenCode V3 response here (foreground answer is ready); keep the Muse view monitor, host, and workspace lock until `turn/completed`. Report usage known at foreground completion; reconcile final aggregate usage/terminal status in the registry. |
 
-If `turn/foregroundCompleted` already closed the OpenCode stream, a later `turn/completed` is session-monitor state only; never emit a second V3 finish. OpenCode's per-call usage may therefore be provisional when Muse continues background work. Keep final Muse aggregate usage in plugin telemetry/session state; do not claim OpenCode's completed-call usage is final in that case.
+If `turn/foregroundCompleted` already closed the OpenCode response, a later `turn/completed` is session-monitor state only; never emit a second V3 finish. OpenCode's per-call usage may therefore be provisional when Muse continues background work. Persist the terminal cursor/active-turn transition before releasing the workspace lock; do not claim OpenCode's completed-call usage is final when Muse continues background work.
 
 Wire-format facts verified in the smoke test (must hold for all emitted parts): `finishReason` is the **object form** (`{unified:"stop"}`) — string literals fail OpenCode's internal schema; `usage` uses **flat number keys** (`inputTokens`, `outputTokens`, `totalTokens`, `reasoningTokens`) — not the nested V3-spec shape. The V3 adapter must implement both `doStream` and `doGenerate` through the same Muse transaction/collector, unless a Phase-1 probe proves a supported OpenCode path never calls `doGenerate`; no unexplained throw is acceptable.
 

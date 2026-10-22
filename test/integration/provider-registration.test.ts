@@ -30,6 +30,7 @@ function fakeContext() {
   let transform: ((editor: { add(input: { info: Record<string, unknown>; models: readonly Record<string, unknown>[] }): void }) => void) | undefined;
   const registrations: Array<{ info: Record<string, unknown>; models: readonly Record<string, unknown>[] }> = [];
   const sessionHooks: Array<{ name: string; callback: (input: any) => void; options?: unknown }> = [];
+  const aisdkHooks: Array<{ name: string; callback: (input: any) => void; options?: unknown }> = [];
   let reloads = 0;
   return {
     context: {
@@ -37,6 +38,12 @@ function fakeContext() {
       session: {
         async hook(name: string, callback: (input: any) => void, options?: unknown) {
           sessionHooks.push({ name, callback, options });
+          return { dispose: async () => {} };
+        },
+      },
+      aisdk: {
+        async hook(name: string, callback: (input: any) => void, options?: unknown) {
+          aisdkHooks.push({ name, callback, options });
           return { dispose: async () => {} };
         },
       },
@@ -54,6 +61,7 @@ function fakeContext() {
     },
     registrations,
     sessionHooks,
+    aisdkHooks,
     get reloads() { return reloads; },
   };
 }
@@ -115,6 +123,25 @@ describe("Muse OpenCode provider registration", () => {
       "x-opencode-muse-provider-id": "muse",
       "x-opencode-muse-variant": "high",
     });
+    await runtime.dispose();
+  });
+
+  test("provider.installsMuseLanguageModelHookUsingTheSelectedCatalogRow", async () => {
+    const fake = fakeContext();
+    const runtime = await createProviderPlugin(fake.context as never, "file:///plugin/dist/index.js", {
+      fetchCatalog: async () => liveCatalog(),
+    });
+    await runtime.refreshTask;
+    const hook = fake.aisdkHooks.find((candidate) => candidate.name === "language");
+    expect(hook?.options).toEqual({ providerID: "muse" });
+    const input: { model: { id: string; modelID: string; providerID: string }; language?: { provider: string; modelId: string; doGenerate?: unknown } } = {
+      model: { id: "muse-profile-tbh-model-muse-wonder-1.0", modelID: "muse-wonder-1.0", providerID: "muse" },
+    };
+
+    hook?.callback(input);
+
+    expect(input.language).toMatchObject({ provider: "muse", modelId: "muse-wonder-1.0" });
+    expect(typeof input.language?.doGenerate).toBe("function");
     await runtime.dispose();
   });
 

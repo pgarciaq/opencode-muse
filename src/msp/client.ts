@@ -27,6 +27,7 @@ export interface MspConnectionLike {
     options?: CommandOptions,
   ): Promise<Record<string, unknown>>;
   request(method: string, params?: Record<string, unknown>): Promise<Record<string, unknown>>;
+  mintCommandId(): string;
   onNotification(handler: (notification: MspNotification) => void): void;
   onProtocolError?(handler: (error: unknown) => void): void;
   close(): Promise<void>;
@@ -181,6 +182,11 @@ export class MspClient {
 
   get protocolFailure(): MspProtocolError | undefined {
     return this.observedProtocolFailure;
+  }
+
+  mintCommandId(): string {
+    this.assertOpen();
+    return this.connection.mintCommandId();
   }
 
   command<TResult extends object = Record<string, unknown>>(

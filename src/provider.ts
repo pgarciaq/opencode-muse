@@ -6,10 +6,15 @@ import {
   type MuseCatalogSnapshot,
 } from "./catalog.js";
 import { addRequestContextHeaders } from "./model/context.js";
+import { createMuseLanguageModel } from "./model/language-model.js";
+import { MuseSessionManager } from "./session/manager.js";
+import { SessionRegistry } from "./session/registry.js";
+import { WorkspaceLock } from "./session/workspace-lock.js";
+import { MuseBridgeError } from "./errors.js";
 
 type ProviderEditor = Parameters<Parameters<Plugin.Context["provider"]["transform"]>[0]>[0];
 
-export type MuseProviderContext = Pick<Plugin.Context, "provider" | "session"> & {
+export type MuseProviderContext = Pick<Plugin.Context, "provider" | "session" | "aisdk"> & {
   location: Pick<Plugin.Context["location"], "directory">;
 };
 
@@ -20,6 +25,7 @@ export interface ProviderPluginDependencies {
 export interface MuseProviderRuntime {
   catalog: CatalogCache;
   refreshTask: Promise<boolean>;
+  sessions: MuseSessionManager;
   dispose(): Promise<void>;
 }
 
@@ -55,16 +61,37 @@ export async function createProviderPlugin(
   dependencies: ProviderPluginDependencies = {},
 ): Promise<MuseProviderRuntime> {
   const catalog = new CatalogCache();
+  const stateDirectory = SessionRegistry.resolveStateDirectory();
+  const sessions = new MuseSessionManager({
+    stateDirectory,
+    registry: new SessionRegistry({ stateDirectory }),
+    workspaceLock: new WorkspaceLock({ stateDirectory }),
+  });
   const registration = await ctx.provider.transform((providers: ProviderEditor) => {
     providers.add({ info: providerInfo(moduleUrl), models: catalog.models });
   });
-  let sessionHookRegistration: Awaited<ReturnType<Plugin.Context["session"]["hook"]>>;
+  let sessionHookRegistration: Awaited<ReturnType<Plugin.Context["session"]["hook"]>> | undefined;
+  let languageHookRegistration: Awaited<ReturnType<Plugin.Context["aisdk"]["hook"]>> | undefined;
   try {
     sessionHookRegistration = await ctx.session.hook("model.request", async (request) => {
       addRequestContextHeaders(request.headers, request, ctx.location.directory);
     }, { providerID: MUSE_PROVIDER_ID });
+    languageHookRegistration = await ctx.aisdk.hook("language", async (input) => {
+      if (input.model.providerID !== MUSE_PROVIDER_ID) return;
+      const selection = catalog.selectionIndex.get(input.model.id);
+      if (!selection) {
+        throw new MuseBridgeError("MUSE_UNSUPPORTED_REQUEST", "Muse model selection is unavailable; refresh the provider catalog", false);
+      }
+      input.language = createMuseLanguageModel({
+        selectionIndex: catalog.selectionIndex,
+        resolveSession: (context) => sessions.resolveSession(context),
+      }, input.model.modelID);
+    }, { providerID: MUSE_PROVIDER_ID });
   } catch (error) {
+    await sessions.close();
     await registration.dispose();
+    // The session hook may have been registered before the language hook failed.
+    await sessionHookRegistration?.dispose();
     throw error;
   }
 
@@ -82,10 +109,16 @@ export async function createProviderPlugin(
   return {
     catalog,
     refreshTask,
+    sessions,
     async dispose() {
       disposed = true;
       await refreshTask;
-      await Promise.all([registration.dispose(), sessionHookRegistration.dispose()]);
+      await Promise.all([
+        registration.dispose(),
+        sessionHookRegistration?.dispose(),
+        languageHookRegistration?.dispose(),
+        sessions.close(),
+      ]);
     },
   };
 }

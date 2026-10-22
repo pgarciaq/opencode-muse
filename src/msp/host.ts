@@ -188,6 +188,11 @@ export class MspHost {
     return this.state !== "open";
   }
 
+  mintCommandId(): string {
+    if (this.state !== "open") throw new MspHostClosedError();
+    return this.client.mintCommandId();
+  }
+
   command<TResult extends object = Record<string, unknown>>(
     method: string,
     paramsWithCommandId: Record<string, unknown> & { commandId: string },

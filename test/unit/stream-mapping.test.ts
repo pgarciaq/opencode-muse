@@ -1,0 +1,163 @@
+import { describe, expect, test } from "bun:test";
+import { MuseStreamMapper } from "../../src/model/stream.js";
+import type { MspNotification } from "../../src/msp/client.js";
+
+const event = (method: string, params: Record<string, unknown>): MspNotification => ({ jsonrpc: "2.0", method, params });
+
+describe("Muse → LanguageModelV3 stream mapping", () => {
+  test("stream.emitsTextStartDeltaEndAndFinishFromItemLifecycle", () => {
+    const mapper = new MuseStreamMapper("turn-1");
+    const parts = [
+      ...mapper.accept(event("item/started", { sessionId: "ses-1", item: { itemId: "item-1", turnId: "turn-1", kind: "agentMessage" } })),
+      ...mapper.accept(event("item/delta", { sessionId: "ses-1", itemId: "item-1", field: "text", delta: "Hello " })),
+      ...mapper.accept(event("item/delta", { sessionId: "ses-1", itemId: "item-1", field: "text", delta: "world" })),
+      ...mapper.accept(event("item/completed", { sessionId: "ses-1", item: { itemId: "item-1", turnId: "turn-1", kind: "agentMessage", status: "completed", text: "Hello world" } })),
+      ...mapper.accept(event("turn/completed", { sessionId: "ses-1", turnId: "turn-1", terminal: "completed" })),
+    ];
+
+    expect(parts.map((part) => part.type)).toEqual(["text-start", "text-delta", "text-delta", "text-end", "finish"]);
+    expect(parts.filter((part) => part.type === "text-delta").map((part) => part.delta)).toEqual(["Hello ", "world"]);
+    expect(mapper.generatedText).toBe("Hello world");
+    expect(parts.at(-1)).toMatchObject({ type: "finish", finishReason: { unified: "stop", raw: "completed" } });
+  });
+
+  test("stream.completedAgentMessageProvidesTextWhenNoDeltaWasObserved", () => {
+    const mapper = new MuseStreamMapper("turn-1");
+    const parts = [
+      ...mapper.accept(event("item/started", { sessionId: "ses-1", item: { itemId: "item-1", turnId: "turn-1", kind: "agentMessage" } })),
+      ...mapper.accept(event("item/completed", { sessionId: "ses-1", item: { itemId: "item-1", turnId: "turn-1", kind: "agentMessage", status: "completed", text: "whole answer" } })),
+    ];
+    expect(parts.map((part) => part.type)).toEqual(["text-start", "text-delta", "text-end"]);
+    expect(mapper.generatedText).toBe("whole answer");
+  });
+
+  test("stream.appendsAnAuthoritativeCompletionSuffixMissingFromObservedDeltas", () => {
+    const mapper = new MuseStreamMapper("turn-1");
+    const parts = [
+      ...mapper.accept(event("item/started", { sessionId: "ses-1", item: { itemId: "item-1", turnId: "turn-1", kind: "agentMessage" } })),
+      ...mapper.accept(event("item/delta", { sessionId: "ses-1", itemId: "item-1", field: "text", delta: "partial" })),
+      ...mapper.accept(event("item/completed", { sessionId: "ses-1", item: { itemId: "item-1", turnId: "turn-1", kind: "agentMessage", status: "completed", text: "partial answer" } })),
+    ];
+    expect(parts.filter((part) => part.type === "text-delta").map((part) => part.delta)).toEqual(["partial", " answer"]);
+    expect(mapper.generatedText).toBe("partial answer");
+  });
+
+  test("stream.failsClosedWhenAuthoritativeCompletionContradictsStreamedText", () => {
+    const mapper = new MuseStreamMapper("turn-1");
+    mapper.accept(event("item/started", { sessionId: "ses-1", item: { itemId: "item-1", turnId: "turn-1", kind: "agentMessage" } }));
+    mapper.accept(event("item/delta", { sessionId: "ses-1", itemId: "item-1", field: "text", delta: "streamed" }));
+
+    const parts = mapper.accept(event("item/completed", {
+      sessionId: "ses-1",
+      item: { itemId: "item-1", turnId: "turn-1", kind: "agentMessage", status: "completed", text: "different" },
+    }));
+    expect(parts.map((part) => part.type)).toEqual(["error"]);
+    expect(JSON.stringify(parts)).not.toContain("different");
+    expect(mapper.accept(event("turn/completed", {
+      sessionId: "ses-1", turnId: "turn-1", terminal: "completed",
+    })).at(-1)).toMatchObject({ type: "finish", finishReason: { unified: "error" } });
+  });
+
+  test("stream.ignoresMuseToolItemsAndNeverEmitsOpenCodeToolCalls", () => {
+    const mapper = new MuseStreamMapper("turn-1");
+    const parts = [
+      ...mapper.accept(event("item/started", { sessionId: "ses-1", item: { itemId: "tool-1", turnId: "turn-1", kind: "toolCall", tool: "shell" } })),
+      ...mapper.accept(event("item/completed", { sessionId: "ses-1", item: { itemId: "tool-1", turnId: "turn-1", kind: "toolCall", status: "completed", tool: "shell" } })),
+    ];
+    expect(parts).toEqual([]);
+  });
+
+  test("stream.mapsOnlySummarizedReasoningAndNeverExposesRawReasoning", () => {
+    const mapper = new MuseStreamMapper("turn-1");
+    const parts = [
+      ...mapper.accept(event("item/started", { sessionId: "ses-1", item: { itemId: "reason-1", turnId: "turn-1", kind: "reasoning" } })),
+      ...mapper.accept(event("item/delta", { sessionId: "ses-1", itemId: "reason-1", field: "summary.0", delta: "safe summary" })),
+      ...mapper.accept(event("item/completed", { sessionId: "ses-1", item: { itemId: "reason-1", turnId: "turn-1", kind: "reasoning", status: "completed", text: "raw-private-reasoning", summary: ["safe summary"] } })),
+    ];
+    expect(parts.map((part) => part.type)).toEqual(["reasoning-start", "reasoning-delta", "reasoning-end"]);
+    expect(JSON.stringify(parts)).not.toContain("raw-private-reasoning");
+  });
+
+  test("stream.usesPerCompletionUsageAndNeverSumsCumulativeSnapshots", () => {
+    const mapper = new MuseStreamMapper("turn-1");
+    mapper.accept(event("session/tokenUsage", {
+      sessionId: "ses-1", turnId: "turn-1", viewCursor: "cursor-1", promptTokens: 10, totalTokens: 15,
+      usage: { inputTokens: 12, outputTokens: 5, reasoningTokens: 1, cachedTokens: 0 },
+      cumulative: { inputTokens: 10_000, outputTokens: 100, reasoningTokens: 50 },
+    }));
+    mapper.accept(event("session/tokenUsage", {
+      sessionId: "ses-1", turnId: "turn-1", viewCursor: "cursor-1", promptTokens: 10, totalTokens: 15,
+      usage: { inputTokens: 12, outputTokens: 5, reasoningTokens: 1, cachedTokens: 0 },
+      cumulative: { inputTokens: 10_000, outputTokens: 100, reasoningTokens: 50 },
+    }));
+    mapper.accept(event("session/tokenUsage", {
+      sessionId: "ses-1", turnId: "turn-1", viewCursor: "cursor-2", promptTokens: 3, totalTokens: 5,
+      usage: { inputTokens: 4, outputTokens: 2, reasoningTokens: 0, cachedTokens: 0 },
+      cumulative: { inputTokens: 10_003, outputTokens: 102, reasoningTokens: 50 },
+    }));
+    mapper.accept(event("turn/completed", { sessionId: "ses-1", turnId: "turn-1", terminal: "completed" }));
+
+    expect(mapper.usage).toEqual({ inputTokens: 13, outputTokens: 7, totalTokens: 20, reasoningTokens: 1 });
+  });
+
+  test("stream.terminalPerTurnUsageOverridesCallSnapshotsWhenPresent", () => {
+    const mapper = new MuseStreamMapper("turn-1");
+    mapper.accept(event("session/tokenUsage", {
+      sessionId: "ses-1", turnId: "turn-1", viewCursor: "cursor-1", promptTokens: 10, totalTokens: 15,
+      usage: { inputTokens: 10, outputTokens: 5, reasoningTokens: 1, cachedTokens: 0 },
+    }));
+    mapper.accept(event("turn/completed", {
+      sessionId: "ses-1", turnId: "turn-1", terminal: "completed",
+      usage: { inputTokens: 8, outputTokens: 2, reasoningTokens: 0, cachedTokens: 0 },
+    }));
+    expect(mapper.usage).toEqual({ inputTokens: 8, outputTokens: 2, totalTokens: 10, reasoningTokens: 0 });
+  });
+
+  test("stream.doesNotFabricateUsageWhenMuseReportsNone", () => {
+    const mapper = new MuseStreamMapper("turn-1");
+    mapper.accept(event("turn/completed", { sessionId: "ses-1", turnId: "turn-1", terminal: "completed" }));
+    expect(mapper.usage).toBeUndefined();
+  });
+
+  test("stream.finishesForegroundAnswerButAcceptsBackgroundTerminalForMonitoring", () => {
+    const mapper = new MuseStreamMapper("turn-1");
+    const foreground = mapper.accept(event("turn/foregroundCompleted", {
+      sessionId: "ses-1", turnId: "turn-1", viewCursor: "cursor-1",
+    }));
+    expect(foreground).toMatchObject([{ type: "finish", finishReason: { unified: "stop", raw: "foregroundCompleted" } }]);
+    expect(mapper.finishWasSentToOpenCode).toBe(true);
+
+    const terminal = mapper.accept(event("turn/completed", {
+      sessionId: "ses-1", turnId: "turn-1", terminal: "completed",
+    }));
+    expect(terminal).toEqual([]);
+    expect(mapper.terminal).toBe("completed");
+  });
+
+  test("stream.mapsFailuresAndUnknownTerminalValuesWithoutLeakingMessages", () => {
+    const failed = new MuseStreamMapper("turn-1");
+    const failedParts = failed.accept(event("turn/completed", {
+      sessionId: "ses-1", turnId: "turn-1", terminal: "failed",
+      error: { kind: "modelError", message: "private provider details", retryable: true },
+    }));
+    expect(failedParts.map((part) => part.type)).toEqual(["error", "finish"]);
+    expect(JSON.stringify(failedParts)).not.toContain("private provider details");
+
+    const future = new MuseStreamMapper("turn-2");
+    const futureParts = future.accept(event("turn/completed", { sessionId: "ses-1", turnId: "turn-2", terminal: "futureTerminal" }));
+    expect(futureParts.at(-1)).toMatchObject({ type: "finish", finishReason: { unified: "other", raw: "futureTerminal" } });
+  });
+
+  test("stream.sanitizesAnUntrustedFailureKindBeforeExposingIt", () => {
+    const mapper = new MuseStreamMapper("turn-1");
+    const parts = mapper.accept(event("turn/completed", {
+      sessionId: "ses-1",
+      turnId: "turn-1",
+      terminal: "failed",
+      error: { kind: "credential-looking-private-detail", message: "private", retryable: false },
+    }));
+    expect(JSON.stringify(parts)).not.toContain("credential-looking-private-detail");
+    expect(JSON.stringify(parts)).not.toContain("private");
+    expect(parts[0]?.error).toMatchObject({ turnErrorKind: "unknown" });
+  });
+});

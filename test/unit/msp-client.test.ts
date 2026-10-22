@@ -135,6 +135,7 @@ describe("MspClient", () => {
     const connection = {
       command: async () => ({}),
       request: async () => ({}),
+      mintCommandId: () => "018f4f17-9c2a-7c1a-a0fd-67a19db5c025",
       onNotification() {},
       onProtocolError() {},
       async close() { throw new Error("credential-looking-value"); },
