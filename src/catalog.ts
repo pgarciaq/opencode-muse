@@ -1,4 +1,5 @@
 import type { Model } from "@opencode/plugin";
+import type { MuseModelSelection } from "./types.js";
 
 export const MUSE_PROVIDER_ID = "muse";
 
@@ -28,17 +29,6 @@ export interface MuseCatalogSnapshot {
   profileId: string | null;
   source: string;
   models: MuseCatalogRow[];
-}
-
-export interface MuseModelSelection {
-  providerId: string;
-  profileId: string | null;
-  modelId: string;
-  isActive: boolean;
-  isDefault: boolean;
-  defaultReasoningEffort?: string;
-  variantsKnown: boolean;
-  variants: string[];
 }
 
 const FALLBACK_ID = "setup-required";

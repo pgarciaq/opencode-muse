@@ -107,13 +107,13 @@ The compatibility probes in Tasks 1, 2, 4, and 5 of the implementation plan are 
 
 ### Slice 6: Prompt/context extraction and input capability mapping
 
-**Files:** `src/model/prompt.ts`, `src/model/context.ts`, `test/unit/prompt.test.ts`, `test/unit/media-mapping.test.ts`, `test/unit/model-options.test.ts`.
+**Files:** `src/model/prompt.ts`, `src/model/context.ts`, `src/types.ts`, `test/unit/prompt.test.ts`, `test/unit/request-context.test.ts`.
 
-- **Red:** Add `prompt.sendsOnlyNewUserInput`, `prompt.forwardsAllowlistedAgentContext`, `media.mapsInlineImageToMspPart`, `media.videoChunksUseCommandIdAndStableUploadId`, `media.doesNotFetchRemoteUrl`, and `options.doesNotFailForNonemptyTools`.
-- **Red from probe outcomes:** Add audio/PDF tests for the verified official MSP/CLI route; where none exists, assert a precise `UnsupportedBridgeInput` error. Add `options.mapsStrictJsonIfSupported` or `options.rejectsOnlyStrictJsonWhenUnsupported` based on the pinned probe. Plain user text asking for JSON must pass as text.
-- **Green:** Map image bytes to MSP `image` parts and video through `media/upload` receipts; support audio/PDF only through an official verified path. Reject remote URLs unless the pinned bridge has a safe, explicit route; never fetch arbitrary URLs.
+- **Red:** Add tests for per-call correlation headers/selection lookup, missing and invalid context, concurrent session isolation, ordered transcript fingerprints, same-length divergence rejection, first-use history without replay, allowlisted context only, image/video byte mapping, remote URL rejection, and generation-option validation.
+- **Red from probe outcomes:** Audio/PDF and strict JSON have no direct stable MSP shape; assert precise bridge-only errors for requested unsupported representations. Plain user text asking for JSON remains valid. Non-empty OpenCode tool catalogs do not fail validation; only an explicitly required OpenCode tool is unsupported. Ordinary sampling options are reported by name as ignored, never logged with values.
+- **Green:** Map supported inline image bytes to MSP `image` parts and video to uploadable bytes for Task 10's `media/upload` chunker. Do not fetch remote URLs or forward old transcript messages; keep only fingerprint lineage and use a clear error on divergence.
 - **Refactor:** Keep input normalization and OpenCode option validation pure; make errors identify the unsupported representation, not model capability.
-- **Verification:** `bun test test/unit/prompt.test.ts test/unit/media-mapping.test.ts test/unit/model-options.test.ts`; fake MSP asserts no turn starts after preflight validation failure.
+- **Verification:** `bun test test/unit/prompt.test.ts test/unit/request-context.test.ts`; fake MSP asserts no turn starts after preflight validation failure.
 
 ### Slice 7: LanguageModelV3 event bridge
 

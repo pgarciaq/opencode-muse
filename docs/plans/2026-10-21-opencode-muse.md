@@ -193,15 +193,15 @@ Create focused modules; adjust names only to match actual pinned SDK exports, an
 - Create: `src/model/context.ts`, `src/model/prompt.ts`
 - Create: `test/unit/request-context.test.ts`, `test/unit/prompt.test.ts`
 
-**Interfaces:** `readRequestContext(callOptions) -> RequestContext | ContextError`; `extractTurnInput(prompt, previousFingerprint, contextAllowlist) -> TurnInput`; `validateModelOptions(options) -> SupportedOptions | UnsupportedOptionError`.
+**Interfaces:** `readRequestContext(callOptions, selectionIndex) -> RequestContext | ContextError`; `extractTurnInput(prompt, previousTranscriptFingerprints, contextAllowlist) -> ExtractTurnInputResult`; `validateModelOptions(options) -> ModelOptionsResult`. Transcript lineage is an ordered fingerprint array so same-length edits are detected without persisting prompt text.
 
-- [ ] Test correlation header parsing, missing/invalid metadata, concurrent session isolation, and context-free `doGenerate` handling for stateless generation; test correlated `doGenerate` only if the pinned runtime exposes that path.
-- [ ] Test only new user content is sent; system/agent/project context follows §6.4 allowlist; tool catalogs and volatile system boilerplate are excluded.
-- [ ] Test image data maps to MSP image parts; video chunks use UUIDv7 `commandId`s plus one shared `uploadId`, preserve chunk order, and yield a usable receipt; audio/PDF use a verified official path or produce a precise bridge-limitation error.
-- [ ] Test ordinary user text requesting JSON remains a normal prompt; map strict OpenCode `responseFormat` if the pinned MSP/CLI supports it, otherwise reject only that strict constraint. Do not fail merely because OpenCode supplied tool definitions; reject only an explicitly required OpenCode-side tool that cannot be represented.
-- [ ] Test remote media references are not fetched implicitly and size/cancellation errors occur before an unintended Muse turn.
-- [ ] Test OpenCode model/provider/profile and effort map to `session/start`/`session/setModel` and `turn/start.reasoningEffort`; no standing effort change occurs for a per-turn variant.
-- [ ] Run tests red, implement pure parsers/validators, then run green.
+- [x] Test correlation header parsing, missing/invalid metadata, concurrent session isolation, and context-free `doGenerate` handling for stateless generation; no session-associated `doGenerate` path was observed in the pinned runtime.
+- [x] Test only new user content is sent; system/agent/project context follows the §6.4 allowlist; tool catalogs and volatile system boilerplate are excluded. Transcript divergence fails closed using ordered fingerprints.
+- [x] Test image data maps to MSP image parts and video is extracted to uploadable bytes; Task 10 will chunk with UUIDv7 `commandId`s plus one shared `uploadId`. No direct audio/PDF/strict-JSON MSP path is represented; alternate official paths remain unverified, and errors name the direct-bridge limitation.
+- [x] Test ordinary user text requesting JSON remains normal text, strict `responseFormat=json` is rejected, non-empty tool definitions do not fail, and an explicitly required OpenCode tool is rejected. Unsupported sampling settings are reported by name only.
+- [x] Test remote media references are not fetched, size limits are checked, and preflight cancellation aborts before returning turn input.
+- [x] Test provider/model/profile/effort context maps through the catalog sidecar; persistent model switching and per-turn reasoning routing are wired in Task 10.
+- [x] Run tests red, implement pure parsers/validators, then run green.
 
 ### Task 10: Implement LanguageModelV3 streaming and generation
 

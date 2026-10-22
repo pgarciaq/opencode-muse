@@ -29,10 +29,17 @@ function liveCatalog(): MuseCatalogSnapshot {
 function fakeContext() {
   let transform: ((editor: { add(input: { info: Record<string, unknown>; models: readonly Record<string, unknown>[] }): void }) => void) | undefined;
   const registrations: Array<{ info: Record<string, unknown>; models: readonly Record<string, unknown>[] }> = [];
+  const sessionHooks: Array<{ name: string; callback: (input: any) => void; options?: unknown }> = [];
   let reloads = 0;
   return {
     context: {
       location: { directory: "/tmp/opencode/muse-plugin-test" },
+      session: {
+        async hook(name: string, callback: (input: any) => void, options?: unknown) {
+          sessionHooks.push({ name, callback, options });
+          return { dispose: async () => {} };
+        },
+      },
       provider: {
         async transform(callback: typeof transform extends undefined ? never : NonNullable<typeof transform>) {
           transform = callback as typeof transform;
@@ -46,6 +53,7 @@ function fakeContext() {
       },
     },
     registrations,
+    sessionHooks,
     get reloads() { return reloads; },
   };
 }
@@ -80,6 +88,33 @@ describe("Muse OpenCode provider registration", () => {
     expect(fake.reloads).toBe(0);
     expect(fake.registrations[0]?.models[0]).toMatchObject({ enabled: false });
     expect(runtime.catalog.hasLiveCatalog).toBe(false);
+    await runtime.dispose();
+  });
+
+  test("provider.stampsPerCallContextHeadersThroughTheSessionHook", async () => {
+    const fake = fakeContext();
+    const runtime = await createProviderPlugin(fake.context as never, "file:///plugin/dist/index.js", {
+      fetchCatalog: async () => liveCatalog(),
+    });
+    await runtime.refreshTask;
+    const hook = fake.sessionHooks.find((candidate) => candidate.name === "model.request");
+    expect(hook?.options).toEqual({ providerID: "muse" });
+    const request = {
+      sessionID: "ses_plugin_test",
+      kind: "primary",
+      model: { id: "muse-profile-tbh-model-muse-wonder-1.0", providerID: "muse", variant: "high" },
+      headers: { "x-existing": "kept" },
+    };
+    hook?.callback(request);
+    expect(request.headers).toMatchObject({
+      "x-existing": "kept",
+      "x-opencode-muse-session-id": "ses_plugin_test",
+      "x-opencode-muse-directory": "/tmp/opencode/muse-plugin-test",
+      "x-opencode-muse-kind": "primary",
+      "x-opencode-muse-model-id": "muse-profile-tbh-model-muse-wonder-1.0",
+      "x-opencode-muse-provider-id": "muse",
+      "x-opencode-muse-variant": "high",
+    });
     await runtime.dispose();
   });
 

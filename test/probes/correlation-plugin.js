@@ -66,6 +66,7 @@ function logModelCall(method, options) {
   const values = valuesFromCallOptions(options.headers);
   const expected = readHeader(options.headers, "signature");
   const observed = encode(values);
+  const toolChoice = options.toolChoice;
   const requiredPresent = Boolean(
     values.sessionID && values.directory && values.kind && values.modelID && values.providerID && values.variant,
   );
@@ -82,6 +83,17 @@ function logModelCall(method, options) {
     providerID: values.providerID || null,
     profilePresent: Boolean(values.profileID),
     variant: values.variant || null,
+    generationOptions: {
+      maxOutputTokens: typeof options.maxOutputTokens === "number" ? options.maxOutputTokens : null,
+      temperaturePresent: typeof options.temperature === "number",
+      topPPresent: typeof options.topP === "number",
+      topKPresent: typeof options.topK === "number",
+      seedPresent: typeof options.seed === "number",
+      stopSequenceCount: Array.isArray(options.stopSequences) ? options.stopSequences.length : 0,
+      responseFormatType: typeof options.responseFormat?.type === "string" ? options.responseFormat.type : null,
+      toolChoiceType: typeof toolChoice === "string" ? toolChoice : typeof toolChoice?.type === "string" ? toolChoice.type : null,
+      toolCount: Array.isArray(options.tools) ? options.tools.length : 0,
+    },
   });
   return matched;
 }

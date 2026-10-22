@@ -5,10 +5,11 @@ import {
   MUSE_PROVIDER_ID,
   type MuseCatalogSnapshot,
 } from "./catalog.js";
+import { addRequestContextHeaders } from "./model/context.js";
 
 type ProviderEditor = Parameters<Parameters<Plugin.Context["provider"]["transform"]>[0]>[0];
 
-export type MuseProviderContext = Pick<Plugin.Context, "provider"> & {
+export type MuseProviderContext = Pick<Plugin.Context, "provider" | "session"> & {
   location: Pick<Plugin.Context["location"], "directory">;
 };
 
@@ -57,6 +58,15 @@ export async function createProviderPlugin(
   const registration = await ctx.provider.transform((providers: ProviderEditor) => {
     providers.add({ info: providerInfo(moduleUrl), models: catalog.models });
   });
+  let sessionHookRegistration: Awaited<ReturnType<Plugin.Context["session"]["hook"]>>;
+  try {
+    sessionHookRegistration = await ctx.session.hook("model.request", async (request) => {
+      addRequestContextHeaders(request.headers, request, ctx.location.directory);
+    }, { providerID: MUSE_PROVIDER_ID });
+  } catch (error) {
+    await registration.dispose();
+    throw error;
+  }
 
   let disposed = false;
   const refreshTask = new Promise<void>((resolve) => setTimeout(resolve, 0)).then(() => {
@@ -75,7 +85,7 @@ export async function createProviderPlugin(
     async dispose() {
       disposed = true;
       await refreshTask;
-      await registration.dispose();
+      await Promise.all([registration.dispose(), sessionHookRegistration.dispose()]);
     },
   };
 }
