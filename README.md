@@ -13,12 +13,19 @@ credential-extraction approach under review in that repo's
 
 ## Status
 
-Design v1.3 was the approved baseline; the working v1.4 design incorporates
-runtime findings. Core implementation is underway. Rewind/fork is deferred
-until Muse fixes the Linux birth-time failure (tracked in
-[issue #20](https://github.com/pgarciaq/opencode-muse/issues/20)); see the
-[v1 tracking issue](https://github.com/pgarciaq/opencode-muse/issues/2) for
-remaining lifecycle and OpenChamber UI gates.
+The approved v1.3 design is now recorded as working v1.4 with pinned-runtime
+findings. The provider bridge, fake-MSP tests, durable session mapping, and
+local title/compaction paths are implemented. The pinned OpenCode 2.1.2 CLI
+smoke remains blocked because its provider-list command hangs even in an empty
+project; see the [v1 tracking issue](https://github.com/pgarciaq/opencode-muse/issues/2).
+Rewind/fork is deliberately unsupported until Muse fixes the Linux birth-time
+failure (tracked in [#20](https://github.com/pgarciaq/opencode-muse/issues/20)).
+
+This package is not yet published. Once published, install it with:
+
+```sh
+opencode plugin add opencode-muse
+```
 
 ## Authentication
 

@@ -79,6 +79,7 @@ These are schema observations, not all live behavioral probes. Keep the probe ou
 | Plugin behavior when Muse requests approval or structured user input | **Fail closed / no UI integration** | Plugin initialize advertises `userInputDialogs:false`; the pinned SDK's default server-request handling rejects unhandled requests as method-not-found. No approval choice, user-input answer, auto-allow, or transcript narration is synthesized. |
 | OpenChamber runtime catalog/fallback visibility | **Not run** | No browser tab/app was attached to this session. Static provider catalog remains the planned path, but live visibility is not yet verified. |
 | Pinned OpenCode 2.1.2 `opencode models` / `provider.list` runtime smoke | **Blocked by environment baseline** | `opencode models --standalone` timed out both with an empty temporary project and with the Muse plugin; direct `provider.list` against isolated `opencode serve` also hung after `/global/health` succeeded. A later `opencode run --standalone` with the Muse model timed out too. The plugin refresh is now non-blocking, but no rows/errors were emitted, so this does not establish a Muse-specific failure. Re-run when this OpenCode provider-list path responds. |
+| Package contents | **PASS for dry-run inventory only** | `npm pack --dry-run --json` lists 34 files including compiled `dist/` modules, package metadata, and README. No tarball was published or installed into a clean OpenCode profile; that runtime smoke remains blocked above. |
 
 ## Credential-Safety Record
 

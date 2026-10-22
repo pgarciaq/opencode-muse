@@ -284,14 +284,15 @@ Create focused modules; adjust names only to match actual pinned SDK exports, an
 
 **Interfaces:** All earlier modules wired through `src/index.ts`; no OpenChamber source modifications.
 
-- [ ] Run `npm run build` and `bun test`; require zero failures.
-- [ ] Run the full opt-in PAYG test: provider visible while logged out; login guidance; model/effort selection; text/image turns; video where the pinned host supports it; strict JSON only where supported; `doGenerate`; cancel; compact; restart/replay; rewind fork; and no OpenCode tool calls.
-- [ ] Run conditional approval UI test; if UI gate failed, assert approval feature is explicitly unavailable and fails closed.
-- [ ] Verify a no-subscription billing response remains typed and actionable; verify no auth/config file was opened by the plugin.
-- [ ] Test `npm pack --dry-run` and install the packed artifact into a clean OpenCode test profile; confirm `aisdk:file://` factory import and fallback catalog.
-- [ ] Update README with install/login, unsupported v1 inputs/features, workspace lock behavior, rewind/file-restore limitation, and troubleshooting.
-- [ ] Re-verify the ToS position recorded in the design before any public release or package publication.
-- [ ] Record exact versions, schema fingerprints, probe outcomes, and remaining limitations in `docs/compatibility.md`; perform a final adversarial review before release.
+- [x] Run `npm run build`, `npm test`, and strict test type-check; full fake suite is green.
+- [ ] Run the full opt-in live E2E only when the OpenCode baseline responds and the chosen billing path is authorized. Current `opencode models`/`provider.list` hangs even in an empty project, so no PAYG E2E, clean-profile install, or OpenCode bridge smoke was run. No rewind/fork test is run until #20's runtime gate passes.
+- [x] Resolve conditional approval UI gate: unsupported choices and structured input are unavailable and fail closed; no generic permission mapping was implemented.
+- [ ] Verify an exact no-subscription billing response remains actionable; no auth/billing probe was sent. Source audit confirms no Muse credential/config path reads; preserve CLI stderr secrecy.
+- [x] `npm pack --dry-run --json` lists the expected README, package metadata, and compiled `dist/` (34 files); clean OpenCode-profile install is blocked by the CLI baseline above.
+- [x] Update README with pre-release status, manual `muse login`, supported direct-MSP inputs, gated UI behavior, workspace locking, and rewind/file-restore limitation.
+- [ ] Re-verify the ToS position before public release or package publication; no release/publication is being performed in this task.
+- [x] Record pinned versions, schema fingerprints, probe outcomes, and limitations in `docs/compatibility.md`.
+- [ ] Perform the final adversarial review before release.
 
 ## Execution Stop Conditions
 
