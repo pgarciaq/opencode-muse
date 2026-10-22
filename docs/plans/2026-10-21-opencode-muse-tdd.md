@@ -156,14 +156,11 @@ The compatibility probes in Tasks 1, 2, 4, and 5 of the implementation plan are 
 
 ### Slice 11: Approvals, narration, and structured input (conditional)
 
-**Files:** `src/approvals.ts`, `src/narration.ts`, `test/unit/approvals.test.ts`, `test/unit/narration.test.ts`, `test/integration/approval-ui.test.ts`.
+**Gate result:** OpenChamber UI inspection found only generic allow-once/always/reject controls, not Muse's exact dynamic choice labels/scopes. Do not create the approval/narration adapter.
 
-- **Gate:** Do not begin the UI adapter until the OpenChamber probe proves it can display Muse's actual choice labels/scopes and return a concrete choice.
-- **Red:** Add `approval.usesCurrentChoiceAndRequirement`, `approval.rejectsStaleStage`, `approval.neverInventsChoiceIds`, `approval.failsClosedWhenUiCannotRepresentChoice`, and `narration.coalescesFileEvents`.
-- **Green:** Submit only currently offered choices with current requirement IDs and command IDs; handle stage updates/resolution; add compact synthetic narration.
-- **Refactor:** Keep approval protocol state separate from OpenCode UI transport; retain no persistent auto-allow cache.
-- **Structured user input:** If and only if the UI collects the full schema, add red tests for single/multiple/free-text answers and exact answer validation. Otherwise test explicit interrupt/error behavior with no fabricated answer.
-- **Verification:** `bun test test/unit/approvals.test.ts test/unit/narration.test.ts`; conditional live approval round-trip on PAYG.
+- **Fail-closed verification:** The session manager initializes MSP with `userInputDialogs:false`; an unregistered Muse server request is rejected by the SDK as method-not-found. Tests assert no fabricated answer or approval decision.
+- **No persistent authority:** No local auto-allow cache or choice ID synthesis exists. OpenCode tool-call parts remain suppressed; synthetic narration and file diffs are not claimed.
+- **Verification:** host capability and default server-request behavior tests run in `test/unit/msp-host.test.ts`; no live PAYG approval probe is run because the UI gate failed and Contributor mode remains unchanged.
 
 ### Slice 12: Authentication UX and credential isolation
 

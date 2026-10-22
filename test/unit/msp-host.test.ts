@@ -13,6 +13,7 @@ function fakeHandshake(
   const connection = new Connection(transport);
   return {
     get closeCount() { return closeCount; },
+    connection,
     handshake: {
       async initialize(params: Parameters<MspHandshake["initialize"]>[0]) {
         const result = await connection.request("initialize", { clientInfo: params.clientInfo, capabilities: params.capabilities });
@@ -75,6 +76,40 @@ describe("MspHost", () => {
     const initialize = transport.requests.find((request) => request.method === "initialize");
 
     expect(initialize?.params?.capabilities).toMatchObject({ userInputDialogs: false });
+    await host.close();
+  });
+
+  test("mspHostFailsClosedOnAnApprovalServerRequestWhenNoChoiceUiIsRegistered", async () => {
+    const transport = new FakeMspTransport((request) => request.method === "initialize"
+      ? { schema: { fingerprint: EXPECTED_SCHEMA_FINGERPRINT } }
+      : {});
+    const fake = fakeHandshake(transport);
+    const host = await MspHost.start({}, { createHandshake: () => fake.handshake });
+    transport.deliver({
+      jsonrpc: "2.0",
+      id: 991,
+      method: "approval/request",
+      params: { sessionId: "ses-1", approvalId: "approval-secret-looking-id" },
+    });
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (transport.writtenFrames.some((frame) =>
+        typeof frame === "object" && frame !== null && "id" in frame && frame.id === 991,
+      )) break;
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    const response = transport.writtenFrames.find((frame) =>
+      typeof frame === "object" && frame !== null && "id" in frame && frame.id === 991,
+    ) as { error?: { code?: number; message?: string }; result?: unknown } | undefined;
+
+    const summarizedFrames = transport.writtenFrames.map((frame) => {
+      if (typeof frame !== "object" || frame === null) return { kind: typeof frame };
+      const value = frame as { id?: unknown; error?: { code?: unknown }; result?: unknown };
+      return { id: value.id, errorCode: value.error?.code, hasResult: "result" in value };
+    });
+    expect(summarizedFrames).toContainEqual({ id: 991, errorCode: -32601, hasResult: false });
+    expect(response?.error?.code).toBe(-32601);
+    expect(response?.result).toBeUndefined();
+    expect(JSON.stringify(response)).not.toContain("approval-secret-looking-id");
     await host.close();
   });
 

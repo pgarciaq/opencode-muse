@@ -259,20 +259,12 @@ Create focused modules; adjust names only to match actual pinned SDK exports, an
 
 ### Task 13: Add approval bridge and narration (conditional on UI gate)
 
-**Files:**
-- Create: `src/approvals.ts`, `src/narration.ts`
-- Create: `test/unit/approvals.test.ts`, `test/unit/narration.test.ts`, `test/integration/approval-ui.test.ts`
+**Gate result:** Task 5 source inspection failed: OpenChamber's generic permission UI cannot faithfully display Muse's dynamic choice IDs, labels, and requirement scopes. No approval/narration UI adapter or generic allow/deny mapping is implemented in v1. MSP initialize advertises `userInputDialogs:false`; the pinned SDK rejects unhandled server requests as method-not-found, so the plugin never fabricates an answer or choice.
 
-**Interfaces:** `handleApprovalRequested(event, permissionUi) -> Promise<void>`; `mapApprovalReply(event, reply) -> OfferedMuseChoice`; `narrateMuseActivity(sessionId, events) -> Promise<void>`.
-
-- [ ] First require Task 5 proof that UI can render Muse choices/scopes; if not, do not implement generic allow/deny substitution—record approvals as unavailable in v1.
-- [ ] Test exact offered `choiceId` and `currentRequirementId`, persisted UUIDv7 command ID, `approval/updated` stage change, stale-stage rejection, `approval/resolved`, timeout/close behavior, and fail-closed unmatched UI reply.
-- [ ] Assert no local always cache, no choice ID synthesis, no raw args/secrets in logs or registry, and no host reaping while an approval is pending.
-- [ ] Test narration coalesces file/tool activity and does not create OpenCode tool-call parts or claim native diff/undo support.
-- [ ] Run unit tests against the unimplemented approval/narration handlers and confirm expected failures.
-- [ ] Implement `userInput/*` only if Task 5 proves a structured UI; otherwise test `userInput/interrupt` yields a clear unsupported-input result with no fabricated answer.
-- [ ] Implement only the UI-approved choice mapping and narration behavior; keep the feature unavailable when the UI gate failed.
-- [ ] Run tests and opt-in live approval round-trip on PAYG.
+- [x] Record the failed UI gate and defer exact-choice approval UI; no local always cache or invented choice IDs exist.
+- [x] Test manager capabilities disable unsupported structured user-input dialogs; characterize default method-not-found handling for unregistered approval server requests.
+- [x] Keep the LanguageModelV3 bridge from emitting OpenCode tool calls. Narration and native file diffs remain unavailable pending a UI/runtime presentation gate.
+- [x] Do not run a live approval PAYG probe because the UI gate failed; Contributor mode is unchanged.
 
 ### Task 14: Add safe auth UX and OpenChamber integration fallback
 

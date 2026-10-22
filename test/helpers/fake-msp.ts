@@ -46,6 +46,7 @@ export class FakeMspTransport implements DuplexTransport {
   }> = [];
   readonly incoming = this.incomingQueue;
   readonly requests: FakeRpcRequest[] = [];
+  readonly writtenFrames: unknown[] = [];
   private closed = false;
 
   constructor(private readonly handler: FakeRpcHandler = () => ({})) {}
@@ -58,6 +59,7 @@ export class FakeMspTransport implements DuplexTransport {
       } catch {
         continue;
       }
+      this.writtenFrames.push(request);
       this.requests.push(request);
       for (const waiter of [...this.requestWaiters]) {
         if (!waiter.predicate(request)) continue;
