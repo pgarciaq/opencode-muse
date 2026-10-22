@@ -100,19 +100,32 @@ function collectNotifications(connection: Connection) {
 function eventSummary(event: ProbeEvent) {
   const params = event.params;
   const usage = params.usage as Record<string, unknown> | undefined;
+  const item = typeof params.item === "object" && params.item !== null
+    ? params.item as { kind?: string; status?: string; turnId?: string | null }
+    : undefined;
+  const eventTurnId = typeof params.turnId === "string" ? params.turnId : item?.turnId;
+  const delta = typeof params.delta === "string" ? params.delta : undefined;
   return {
     method: event.method,
     sessionIdHash: typeof params.sessionId === "string" ? hash(params.sessionId) : null,
-    turnIdHash: typeof params.turnId === "string" ? hash(params.turnId) : null,
-    itemKind: typeof params.item === "object" && params.item !== null
-      ? (params.item as { kind?: string }).kind ?? null
-      : null,
+    turnIdHash: typeof eventTurnId === "string" ? hash(eventTurnId) : null,
+    itemKind: item?.kind ?? null,
+    itemStatus: item?.status ?? null,
+    deltaField: typeof params.field === "string" ? params.field : null,
+    deltaUtf8Bytes: delta === undefined ? null : Buffer.byteLength(delta, "utf8"),
     terminal: typeof params.terminal === "string" ? params.terminal : null,
     usage: usage
       ? Object.fromEntries(Object.entries(usage).filter(([, count]) => typeof count === "number"))
       : null,
     viewCursorHash: typeof params.viewCursor === "string" ? hash(params.viewCursor) : null,
   };
+}
+
+function belongsToTurn(event: ProbeEvent, sessionId: string, turnId: string): boolean {
+  if (event.params.sessionId !== sessionId) return false;
+  if (event.params.turnId === turnId) return true;
+  const item = event.params.item as { turnId?: string | null } | undefined;
+  return item?.turnId === turnId;
 }
 
 async function probeSessionRename(connection: Connection, sessionId: string, name: string): Promise<string> {
@@ -218,7 +231,7 @@ try {
   }
 
   const originalTurnEvents = notifications.events
-    .filter((event) => event.params.sessionId === sessionId && event.params.turnId === turnId)
+    .filter((event) => belongsToTurn(event, sessionId, turnId))
     .map(eventSummary);
   const turnStartCount = notifications.events.filter((event) =>
     event.method === "turn/started" && event.params.sessionId === sessionId && event.params.turnId === turnId,
