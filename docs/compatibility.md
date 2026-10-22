@@ -77,3 +77,12 @@ These are schema observations, not all live behavioral probes. Keep the probe ou
 ## Credential-Safety Record
 
 For schema discovery, only `muse --version`, `opencode --version`, `muse schema --help`, offline schema export, and `npm view @muse-code/sdk version` were used. Echo lifecycle probes used an isolated Muse home. The live Meta lifecycle and combined image/video probes used the official CLI and the user's existing subscription; no Muse credential/config file was opened and no Contributor-mode setting was changed. Probe logging excludes prompt, media payloads, and generated text.
+
+## Plugin State Path (Task 7)
+
+- Linux/macOS: `$XDG_DATA_HOME/opencode-muse`, falling back to `~/.local/share/opencode-muse`.
+- Windows: `%LOCALAPPDATA%\opencode-muse`, falling back to `%USERPROFILE%\AppData\Local\opencode-muse`.
+- Session files are named by SHA-256 of the OpenCode session ID, versioned, mode 0600, and atomically replaced under mode-0700 directories. Corrupt or unsupported-version records are quarantined and treated as unmapped; they are never used to resume a Muse session.
+- State-directory resolution rejects any configured path inside the Muse configuration directory (including custom `XDG_CONFIG_HOME` roots); the plugin never writes there.
+- Stored data is limited to session/host/model IDs, workspace and transcript fingerprints, opaque view cursor, turn ID, command IDs/fingerprints, and timestamps. No prompt text, transcript bodies, workspace paths, credentials, or raw CLI output are persisted.
+- Workspace locks use an exclusive-create file keyed by workspace fingerprint and store a PID/owner token/session ID, not the raw path. Dead-PID locks are reclaimed only after owner-token rechecks under an exclusive recovery claim. A stale/corrupt recovery claim fails closed and needs operator cleanup after checking its PID. This coordinates local processes on a shared local filesystem; it is not a distributed lock for multiple machines on network storage.

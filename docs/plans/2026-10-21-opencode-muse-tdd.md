@@ -91,10 +91,10 @@ The compatibility probes in Tasks 1, 2, 4, and 5 of the implementation plan are 
 
 **Files:** `src/session/registry.ts`, `src/session/workspace-lock.ts`, `test/unit/session-registry.test.ts`, `test/unit/workspace-lock.test.ts`.
 
-- **Red:** Add tests `registry.recoversAtomicStateAfterRestart`, `registry.rejectsWrongWorkspace`, `registry.doesNotPersistPromptBodies`, `lock.rejectsSecondWriter`, and `lock.recoversStaleOwner`; assert persisted state contains only IDs/hashes/cursors/command fingerprints.
+- **Red:** Add tests `registry.writesVersionedPrivateAtomicStateAndReloads`, `registry.rejectsAWorkspaceFingerprintMismatch`, `registry.rejectsPromptOrUnknownFieldsBeforePersistence`, `registry.quarantinesCorruptEntry`, `lock.concurrentSameWorkspaceGetsOneOwner`, `lock.independentWorkspacesDoNotBlock`, and `lock.recoversDeadOwner`; assert persisted state contains only IDs/hashes/cursors/command fingerprints.
 - **Green:** Implement versioned atomic persistence with restrictive permissions and a single-writer lock; implement a workspace-scoped lock with explicit `BusyError` and stale-owner recovery.
 - **Refactor:** Put persistence behind a small adapter so corruption/concurrency cases remain deterministic.
-- **Verification:** `bun test test/unit/session-registry.test.ts test/unit/workspace-lock.test.ts`; instrument filesystem calls and assert no `~/.config/muse` access.
+- **Verification:** `bun test test/unit/session-registry.test.ts test/unit/workspace-lock.test.ts`; check directory/file modes and instrument filesystem paths to assert no `~/.config/muse` access. Unknown registry versions are quarantined (no legacy registry has been released to migrate).
 
 ### Slice 5: Catalog and OpenCode provider registration
 

@@ -6,7 +6,11 @@ export type MuseBridgeErrorCode =
   | "MUSE_COMMAND_REJECTED"
   | "MUSE_PROTOCOL_ERROR"
   | "MUSE_TRANSPORT_ERROR"
-  | "MUSE_HOST_CLOSED";
+  | "MUSE_HOST_CLOSED"
+  | "MUSE_REGISTRY_ERROR"
+  | "MUSE_REGISTRY_STORAGE_ERROR"
+  | "MUSE_WORKSPACE_BUSY"
+  | "MUSE_WORKSPACE_LOCK_CORRUPT";
 
 /** Safe plugin error: never attach raw CLI stderr, MSP text, prompts, or payloads. */
 export class MuseBridgeError extends Error {
@@ -94,5 +98,47 @@ export class MspSchemaMismatchError extends MuseBridgeError {
   constructor(readonly pinned: string, readonly served: string) {
     super("MUSE_HOST_START_FAILED", "Muse host schema fingerprint does not match the pinned MSP schema", false);
     this.name = "MspSchemaMismatchError";
+  }
+}
+
+export class RegistryValidationError extends MuseBridgeError {
+  constructor() {
+    super("MUSE_REGISTRY_ERROR", "Muse session registry entry is invalid or contains unsupported fields", false);
+    this.name = "RegistryValidationError";
+  }
+}
+
+export class RegistryCorruptError extends MuseBridgeError {
+  constructor() {
+    super("MUSE_REGISTRY_ERROR", "Muse session registry entry is corrupt and could not be quarantined safely", false);
+    this.name = "RegistryCorruptError";
+  }
+}
+
+export class RegistryStorageError extends MuseBridgeError {
+  constructor() {
+    super("MUSE_REGISTRY_STORAGE_ERROR", "Muse session registry storage operation failed", true);
+    this.name = "RegistryStorageError";
+  }
+}
+
+export class RegistryWorkspaceMismatchError extends MuseBridgeError {
+  constructor() {
+    super("MUSE_REGISTRY_ERROR", "OpenCode session is already bound to a different workspace", false);
+    this.name = "RegistryWorkspaceMismatchError";
+  }
+}
+
+export class WorkspaceBusyError extends MuseBridgeError {
+  constructor() {
+    super("MUSE_WORKSPACE_BUSY", "Another OpenCode session currently owns this workspace", true);
+    this.name = "WorkspaceBusyError";
+  }
+}
+
+export class WorkspaceLockCorruptError extends MuseBridgeError {
+  constructor() {
+    super("MUSE_WORKSPACE_LOCK_CORRUPT", "Workspace lock is corrupt; refusing to assume it is stale", false);
+    this.name = "WorkspaceLockCorruptError";
   }
 }

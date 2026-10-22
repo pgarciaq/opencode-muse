@@ -164,11 +164,11 @@ Create focused modules; adjust names only to match actual pinned SDK exports, an
 
 **Interfaces:** `SessionRegistry.get(opencodeSessionId, workspaceFingerprint)`, `put(entry)`, `updateCursor(...)`, `recordPendingCommand(...)`, `clearPendingCommand(...)`; `WorkspaceLock.acquire(workspaceFingerprint) -> LockLease | BusyError`, `LockLease.release()`.
 
-- [ ] Write tests for atomic persistence, schema versioning, restart load, corrupt-file recovery, wrong-workspace rejection, concurrent writers, and stale lock recovery.
-- [ ] Assert persisted records contain IDs, hashes, cursors, and command fingerprints only—no prompt bodies, transcripts, Muse config values, or raw CLI output.
-- [ ] Run the tests red, implement versioned atomic state under the selected OpenCode user data/state directory with restrictive permissions and a single-writer lock, then run green.
-- [ ] Test a second OpenCode session on the same workspace receives a clear busy result; test different workspaces proceed independently.
-- [ ] Document platform paths and the lock strategy in `docs/compatibility.md`.
+- [x] Write tests for atomic persistence, schema versioning, restart load, corrupt-file recovery, wrong-workspace rejection, concurrent writers, independent workspaces, and stale lock recovery. Unsupported/corrupt versions are quarantined and treated as unmapped; no legacy schema migration exists yet because the plugin has no released registry format.
+- [x] Assert persisted records contain IDs, hashes, cursors, and command fingerprints only—no prompt bodies, transcripts, Muse config values, workspace paths, or raw CLI output.
+- [x] Run tests red, implement versioned atomic state under the selected OpenCode user data/state directory with restrictive permissions and a local single-writer lock, then run green.
+- [x] Test a second OpenCode session on the same workspace receives a clear busy result; test different workspaces proceed independently.
+- [x] Document platform paths and the local lock strategy in `docs/compatibility.md`.
 
 ### Task 8: Register the provider and resilient catalog
 
