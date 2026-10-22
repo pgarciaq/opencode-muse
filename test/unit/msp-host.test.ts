@@ -64,6 +64,20 @@ describe("MspHost", () => {
     await host.close();
   });
 
+  test("mspHostCanExplicitlyDeclineUnsupportedStructuredUserInputDialogs", async () => {
+    const transport = new FakeMspTransport((request) => request.method === "initialize"
+      ? { schema: { fingerprint: EXPECTED_SCHEMA_FINGERPRINT } }
+      : {});
+    const fake = fakeHandshake(transport);
+    const host = await MspHost.start({ capabilities: { userInputDialogs: false } }, {
+      createHandshake: () => fake.handshake,
+    });
+    const initialize = transport.requests.find((request) => request.method === "initialize");
+
+    expect(initialize?.params?.capabilities).toMatchObject({ userInputDialogs: false });
+    await host.close();
+  });
+
   test("mspHost.startTimeoutClosesTheHalfStartedHandshake", async () => {
     let closeCount = 0;
     const hostPromise = MspHost.start({ startupTimeoutMs: 10 }, {

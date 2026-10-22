@@ -162,6 +162,8 @@ async function* pageGapNotifications(
   gap: { after: string; next: string },
 ): AsyncIterable<MspNotification> {
   let cursor = gap.after;
+  const requestedCursors = new Set<string>([gap.after]);
+  const eventCursors = new Set<string>();
   for (let pageNumber = 0; pageNumber < 100; pageNumber += 1) {
     const requestCursor = cursor;
     const page = await host.request<{ events?: unknown; nextCursor?: unknown }>("view/page", {
@@ -179,13 +181,16 @@ async function* pageGapNotifications(
         throw new MspProtocolError("view/page");
       }
       if (params.viewCursor === gap.next) return;
-      if (params.viewCursor === cursor) throw new MspProtocolError("view/page");
+      if (eventCursors.has(params.viewCursor)) throw new MspProtocolError("view/page");
+      eventCursors.add(params.viewCursor);
       cursor = params.viewCursor;
       yield { jsonrpc: "2.0", method: record.method, params };
     }
-    if (page.nextCursor === null || typeof page.nextCursor !== "string" || page.nextCursor === requestCursor) {
+    if (page.nextCursor === null || typeof page.nextCursor !== "string"
+      || page.nextCursor === requestCursor || requestedCursors.has(page.nextCursor)) {
       throw new MspProtocolError("view/page");
     }
+    requestedCursors.add(page.nextCursor);
     cursor = page.nextCursor;
   }
   throw new MspProtocolError("view/page");

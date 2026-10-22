@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
+import type { MspHandshake } from "@muse-code/sdk";
 import type { RequestContext } from "../types.js";
 import { MspHost } from "../msp/host.js";
 import {
@@ -23,7 +24,7 @@ export interface MuseSessionManagerOptions {
   registry: SessionRegistry;
   workspaceLock: WorkspaceLock;
   museBin?: string;
-  createHost?(options: { museBin?: string; cwd: string; args: readonly string[] }): Promise<MuseSessionHost>;
+  createHost?(options: { museBin?: string; cwd: string; args: readonly string[]; capabilities?: Parameters<MspHandshake["initialize"]>[0]["capabilities"] }): Promise<MuseSessionHost>;
   videoChunkBytes?: number;
 }
 
@@ -81,10 +82,11 @@ export class MuseSessionManager {
   private closed = false;
 
   constructor(private readonly options: MuseSessionManagerOptions) {
-    this.createHost = options.createHost ?? (async ({ museBin, cwd, args }) => MspHost.start({
+    this.createHost = options.createHost ?? (async ({ museBin, cwd, args, capabilities }) => MspHost.start({
       museBin,
       cwd,
       args,
+      capabilities,
       startupTimeoutMs: 20_000,
       commandTimeoutMs: 30_000,
       requestTimeoutMs: 20_000,
@@ -127,6 +129,7 @@ export class MuseSessionManager {
         museBin: this.options.museBin,
         cwd: canonicalDirectory,
         args: ["serve", "--provider", stored?.providerId ?? selected.providerId],
+        capabilities: { userInputDialogs: false },
       });
       const durability = host.initializeResult.sessionDurability;
       if (stored && durability === "ephemeral") throw new MuseRecoveryChoiceRequiredError();

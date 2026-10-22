@@ -45,6 +45,7 @@ function context(sessionID: string, directory: string): RequestContext {
 function managerAt(root: string, failSetModel = false, resumeActiveTurn = false, registryOverride?: SessionRegistry) {
   let id = 0;
   const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const hostOptions: Array<Record<string, unknown>> = [];
   const hosts: Array<{ closeCount: number }> = [];
   const registry = registryOverride ?? new SessionRegistry({ stateDirectory: root });
   const manager = new MuseSessionManager({
@@ -52,6 +53,7 @@ function managerAt(root: string, failSetModel = false, resumeActiveTurn = false,
     registry,
     workspaceLock: new WorkspaceLock({ stateDirectory: root }),
     async createHost(options) {
+      hostOptions.push(options as unknown as Record<string, unknown>);
       const record = { closeCount: 0 };
       hosts.push(record);
       return {
@@ -81,13 +83,13 @@ function managerAt(root: string, failSetModel = false, resumeActiveTurn = false,
       } as never;
     },
   });
-  return { manager, calls, hosts };
+  return { manager, calls, hosts, hostOptions };
 }
 
 describe("MuseSessionManager", () => {
   test("sessionManager.createsOneHostAndMuseSessionPerOpenCodeSession", async () => {
     const root = tempRoot();
-    const { manager, calls } = managerAt(root);
+    const { manager, calls, hostOptions } = managerAt(root);
     const directory = join(root, "project");
     mkdirSync(directory);
     const first = await manager.resolveSession(context("ses_oc_1", directory));
@@ -102,6 +104,7 @@ describe("MuseSessionManager", () => {
       modelId: "wonder",
       workspaceRoot: directory,
     });
+    expect(hostOptions[0]?.capabilities).toEqual({ userInputDialogs: false });
     expect(await new SessionRegistry({ stateDirectory: root }).get("ses_oc_1", workspaceFingerprint(directory))).toMatchObject({
       museSessionId: first.sessionId,
       providerId: "meta",

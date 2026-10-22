@@ -39,6 +39,7 @@ export interface MspHostOptions {
   requestTimeoutMs?: number;
   shutdownTimeoutMs?: number;
   clientInfo?: { name: string; version: string };
+  capabilities?: Parameters<MspHandshake["initialize"]>[0]["capabilities"];
 }
 
 export interface MspHostDependencies {
@@ -156,6 +157,7 @@ export class MspHost {
 
     const initializeParams = {
       clientInfo: options.clientInfo ?? { name: "opencode_muse", version: "0.1.0" },
+      ...(options.capabilities ? { capabilities: options.capabilities } : {}),
     };
     const timeoutMs = options.startupTimeoutMs ?? 20_000;
     const initializing = handshake.initialize(initializeParams);
