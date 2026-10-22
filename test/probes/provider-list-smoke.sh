@@ -29,7 +29,7 @@ fi
 node - "$RUN_ROOT/models.stdout" <<'NODE'
 const fs = require("node:fs");
 const output = fs.readFileSync(process.argv[2], "utf8");
-const lines = output.split(/\r?\n/).filter((line) => /muse/i.test(line));
-if (lines.length === 0) throw new Error("OpenCode did not list a Muse provider/model row");
-console.log(JSON.stringify({ status: "PROVIDER_LIST_OK", museRows: lines.length }));
+const lines = output.split(/\r?\n/).filter((line) => line.trim().startsWith("muse/"));
+if (lines.length === 0) throw new Error("OpenCode did not list a model from the Muse provider");
+console.log(JSON.stringify({ status: "PROVIDER_LIST_OK", museProviderRows: lines.length }));
 NODE
