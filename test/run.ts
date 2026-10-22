@@ -15,6 +15,8 @@ import "./unit/session-manager.test.ts";
 import "./unit/meta-request.test.ts";
 import "./unit/fingerprint.test.ts";
 import "./integration/turn-bridge.test.ts";
+import "./integration/session-recovery.test.ts";
+import "./integration/rewind-fork.test.ts";
 
 interface PackageMetadata {
   exports?: {

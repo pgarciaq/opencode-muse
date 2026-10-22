@@ -53,17 +53,24 @@ function fakeRuntime(options: {
   blockSubscription?: boolean;
   failRecordTurnAccepted?: boolean;
   failClearPendingCommand?: boolean;
+  viewPage?: Record<string, unknown>;
+  viewPages?: Record<string, unknown>[];
   currentSelection?: Pick<MuseModelSelection, "providerId" | "modelId" | "profileId">;
   previousTranscriptFingerprints?: string[];
   compactionFingerprints?: string[];
 } = {}) {
   const commands: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const requests: Array<{ method: string; params?: Record<string, unknown> }> = [];
   const order: string[] = [];
+  const commandLifecycle: string[] = [];
+  const pendingCommandMethods = new Map<string, string>();
+  const cursorUpdates: string[] = [];
   let released = 0;
   let subscriptionReturns = 0;
   let markReleased!: () => void;
   const releasedPromise = new Promise<void>((resolve) => { markReleased = resolve; });
   let idCounter = 0;
+  let pageIndex = 0;
   const host = {
     mintCommandId: () => `018f4f17-9c2a-7c1a-a0fd-67a19db5c0${String(idCounter++).padStart(2, "0")}`,
     async command(method: string, params: Record<string, unknown>) {
@@ -77,6 +84,11 @@ function fakeRuntime(options: {
       }
       if (method === "media/upload") return { uploadId: params.uploadId };
       return { status: "accepted" };
+    },
+    async request(method: string, params?: Record<string, unknown>) {
+      requests.push({ method, params });
+      if (options.viewPages) return options.viewPages[pageIndex++] ?? { events: [], nextCursor: null };
+      return options.viewPage ?? {};
     },
     subscribe(sessionId: string, after?: string, signal?: AbortSignal) {
       order.push(after === undefined ? "subscribe-live" : "subscribe-replay");
@@ -122,6 +134,22 @@ function fakeRuntime(options: {
     previousTranscriptFingerprints: options.previousTranscriptFingerprints ?? [],
     compactionFingerprints: options.compactionFingerprints ?? [],
     contextAllowlist: [],
+    async recordPendingCommand(command: { commandId: string; method: string }) {
+      pendingCommandMethods.set(command.commandId, command.method);
+      commandLifecycle.push(`pending:${command.method}`);
+    },
+    async clearPendingCommand(commandId: string) {
+      const method = pendingCommandMethods.get(commandId);
+      if (method) commandLifecycle.push(`clear:${method}`);
+      pendingCommandMethods.delete(commandId);
+      if (options.failClearPendingCommand) throw new Error("registry cleanup failed");
+    },
+    async recordTurnCompleted() {
+      commandLifecycle.push("terminal");
+      for (const method of pendingCommandMethods.values()) commandLifecycle.push(`clear:${method}`);
+      pendingCommandMethods.clear();
+    },
+    async updateCursor(cursor: string) { cursorUpdates.push(cursor); },
     ...(options.failRecordTurnAccepted ? {
       async recordTurnAccepted() { throw new Error("registry write failed"); },
     } : {}),
@@ -138,7 +166,10 @@ function fakeRuntime(options: {
   return {
     runtime,
     commands,
+    requests,
+    commandLifecycle,
     order,
+    cursorUpdates,
     get released() { return released; },
     releasedPromise,
     get subscriptionReturns() { return subscriptionReturns; },
@@ -294,8 +325,83 @@ describe("Muse LanguageModelV3 bridge", () => {
         { role: "user", content: [{ type: "text", text: "different summary text" }] },
         { role: "user", content: [{ type: "text", text: "Continue." }] },
       ],
-    }))).rejects.toThrow(/transcript-diverged/);
+    }))).rejects.toThrow(/fresh Muse session/i);
     expect(fake.commands.some((command) => command.method === "turn/start")).toBe(false);
+  });
+
+  test("languageModel.explainsThatTranscriptDivergenceRequiresFreshSessionRecovery", async () => {
+    const fake = fakeRuntime({ previousTranscriptFingerprints: ["a".repeat(64), "b".repeat(64)] });
+    const model = createMuseLanguageModel(fake.runtime, modelID);
+    const error = await model.doGenerate(callOptions({
+      prompt: [
+        { role: "user", content: [{ type: "text", text: "same count, edited earlier turn" }] },
+        { role: "assistant", content: [{ type: "text", text: "old assistant" }] },
+        { role: "user", content: [{ type: "text", text: "latest" }] },
+      ],
+    })).then(() => undefined, (reason: unknown) => reason as Error);
+
+    expect(error?.name).toBe("MuseTranscriptDivergedError");
+    expect(error?.message).toMatch(/fresh Muse session/i);
+    expect(fake.commands.some((command) => command.method === "turn/start")).toBe(false);
+  });
+
+  test("languageModel.pagesAndDeduplicatesTheMissingViewRange", async () => {
+    const pageEvent = event("item/completed", {
+      sessionId: "ses_model_test",
+      viewCursor: "cursor-4",
+      item: { itemId: "msg-gap", turnId: "turn-1", kind: "agentMessage", status: "completed", text: "Recovered answer" },
+    });
+    const fake = fakeRuntime({
+      events: [
+        event("turn/started", { sessionId: "ses_model_test", turnId: "turn-1", viewCursor: "cursor-1" }),
+        event("view/gap", { sessionId: "ses_model_test", after: "cursor-2", next: "cursor-5" }),
+        event("item/completed", {
+          sessionId: "ses_model_test",
+          viewCursor: "cursor-4",
+          item: { itemId: "msg-gap", turnId: "turn-1", kind: "agentMessage", status: "completed", text: "Recovered answer" },
+        }),
+        event("turn/completed", { sessionId: "ses_model_test", turnId: "turn-1", terminal: "completed", viewCursor: "cursor-5" }),
+      ],
+      viewPage: { events: [pageEvent, event("turn/completed", { sessionId: "ses_model_test", turnId: "turn-1", terminal: "completed", viewCursor: "cursor-5" })], nextCursor: "cursor-5" },
+    });
+    const model = createMuseLanguageModel(fake.runtime, modelID);
+    const result = await model.doGenerate(callOptions());
+
+    expect(result.content).toEqual([{ type: "text", text: "Recovered answer" }]);
+    expect(fake.requests).toEqual([{
+      method: "view/page",
+      params: { sessionId: "ses_model_test", cursor: "cursor-2", direction: "forward", limit: 1000 },
+    }]);
+    expect(fake.cursorUpdates).toEqual(["cursor-1", "cursor-4", "cursor-5"]);
+    expect(result.finishReason).toMatchObject({ raw: "completed", unified: "stop" });
+  });
+
+  test("languageModel.pagesAcrossShortViewPagesUntilTheGapBoundary", async () => {
+    const fake = fakeRuntime({
+      events: [
+        event("turn/started", { sessionId: "ses_model_test", turnId: "turn-1", viewCursor: "cursor-1" }),
+        event("view/gap", { sessionId: "ses_model_test", after: "cursor-2", next: "cursor-5" }),
+        event("turn/completed", { sessionId: "ses_model_test", turnId: "turn-1", terminal: "completed", viewCursor: "cursor-5" }),
+      ],
+      viewPages: [
+        {
+          events: [event("item/started", { sessionId: "ses_model_test", viewCursor: "cursor-3", item: { itemId: "msg-gap", turnId: "turn-1", kind: "agentMessage" } })],
+          nextCursor: "cursor-3",
+        },
+        {
+          events: [
+            event("item/completed", { sessionId: "ses_model_test", viewCursor: "cursor-4", item: { itemId: "msg-gap", turnId: "turn-1", kind: "agentMessage", status: "completed", text: "Paged answer" } }),
+            event("turn/completed", { sessionId: "ses_model_test", turnId: "turn-1", terminal: "completed", viewCursor: "cursor-5" }),
+          ],
+          nextCursor: "cursor-5",
+        },
+      ],
+    });
+    const model = createMuseLanguageModel(fake.runtime, modelID);
+    const result = await model.doGenerate(callOptions());
+
+    expect(result.content).toEqual([{ type: "text", text: "Paged answer" }]);
+    expect(fake.requests.map((request) => request.params?.cursor)).toEqual(["cursor-2", "cursor-3"]);
   });
 
   test("languageModel.continuesAfterOnlyAnObservedCompactionCandidate", async () => {
@@ -331,7 +437,7 @@ describe("Muse LanguageModelV3 bridge", () => {
         { role: "user", content: [{ type: "text", text: "different summary" }] },
         { role: "user", content: [{ type: "text", text: "Continue." }] },
       ],
-    }))).rejects.toThrow(/transcript-diverged/);
+    }))).rejects.toThrow(/fresh Muse session/i);
     expect(fake.commands.some((command) => command.method === "turn/start")).toBe(false);
   });
 
@@ -374,6 +480,15 @@ describe("Muse LanguageModelV3 bridge", () => {
     expect(result.content).toEqual([{ type: "text", text: "Probe answer" }]);
     expect(fake.commands.filter((command) => command.method === "turn/start")).toHaveLength(1);
     await fake.releasedPromise;
+  });
+
+  test("languageModel.keepsTurnStartIdPendingUntilAReconciledTerminal", async () => {
+    const fake = fakeRuntime({ events: textEvents() });
+    const model = createMuseLanguageModel(fake.runtime, modelID);
+    await model.doGenerate(callOptions());
+    await fake.releasedPromise;
+
+    expect(fake.commandLifecycle.indexOf("terminal")).toBeLessThan(fake.commandLifecycle.lastIndexOf("clear:turn/start"));
   });
 
   test("languageModel.doesNotTurnSessionGenerateIntoALiveMuseTurn", async () => {

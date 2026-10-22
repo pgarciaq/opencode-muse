@@ -196,8 +196,16 @@ export class MuseSessionManager {
           }
         },
         async updateCursor(cursor) {
+          const previous = binding.viewCursor;
           binding.viewCursor = cursor;
-          await managerOptions.registry.updateCursor(context.sessionID, fingerprint, cursor);
+          try {
+            await managerOptions.registry.updateCursor(context.sessionID, fingerprint, cursor);
+          } catch {
+            // Retaining the older durable cursor is safe: the next resume will
+            // replay this suffix. Do not abandon an active turn because a
+            // per-event cursor write temporarily failed.
+            binding.viewCursor = previous;
+          }
         },
         async recordTurnCompleted(_turnId, _terminal) {
           const previousActive = binding.activeTurnId;

@@ -246,17 +246,16 @@ Create focused modules; adjust names only to match actual pinned SDK exports, an
 - Create: `test/integration/session-recovery.test.ts`, `test/integration/rewind-fork.test.ts`
 - Modify: `src/session/manager.ts`, `src/session/registry.ts`, `src/msp/client.ts`
 
-**Interfaces:** `resolveSession(context) -> MuseSessionBinding`; `startOrResume(binding) -> MspSession`; `forkAt(binding, lastRetainedTurnId) -> MuseSessionBinding`; `recoverPendingTurn(binding) -> RecoveryResult`.
+**Interfaces:** `resolveSession(context) -> MuseTurnSession`; `startOrResume(binding) -> durable-or-fresh Muse session`; `recoverPendingTurn(binding) -> explicit user-choice-required result`. There is no `forkAt` in v1; mapped rewind/fork is deferred to #20.
 
-- [ ] Test one host/session, durable session check, `session/start` + non-sensitive rename, cursor persistence, `session/resume`, view replay, and host reaping only when no work is pending.
-- [ ] Test crash after command write but before ack, after ack but before events, during stream, and after foreground completion; no test may silently submit a new command ID for the same user turn.
-- [ ] Test same-ID retry only when exact payload is deterministically reconstructed; otherwise assert recovery returns “user choice required” without replay.
-- [ ] Ensure process restart resumes only durable sessions and replays from the persisted cursor without duplicate/lost output; ambiguous pending turns require explicit user choice.
-- [ ] Keep rewind/fork excluded from v1 and tracked by #20; transcript divergence without a supported explicit Muse fork returns a clear fresh-session-required error and never replays old prompts.
-- [ ] OpenCode forks start a fresh independent Muse session when rewind is unavailable; workspace files are never rolled back by the bridge.
-- [ ] Run recovery/fork tests against the unimplemented manager and verify they fail for the expected missing transitions.
-- [ ] Implement durable resume/view replay and recovery state transitions in `src/session/manager.ts`; explicit-cut fork mapping remains deferred to #20.
-- [ ] Run integration tests against fake MSP, then the opt-in PAYG lifecycle probe on the pinned CLI.
+- [x] Test one host/session, durable `session/start` and `session/resume`, cursor persistence/replay, and a fresh Muse session for a distinct OpenCode fork/session.
+- [x] Exercise command-pending/turn-active crash boundaries: before ack and after accepted turn. Persist exact command IDs/fingerprints; never retry a pending side effect after restart without its reconstructable exact payload.
+- [x] On process restart, resume only durable idle sessions at the observed cursor. Pending commands, absent/unknown `activeTurnId`, or active Muse turns require explicit user recovery choice.
+- [x] Fill a `view/gap` with bounded `view/page` pagination, deduplicate replayed cursors, and preserve the live boundary event.
+- [x] Transcript divergence returns an explicit fresh-session-required error before `turn/start`; rewind/fork remains excluded and tracked by #20. The bridge does not roll back workspace files.
+- [x] Keep the workspace lock through foreground response/background work until terminal persistence; same-workspace writers receive `WorkspaceBusyError`.
+- [x] Implement and fake-test these recovery boundaries in `src/session/manager.ts`, registry callbacks, and the turn monitor. SDK same-ID retry remains limited to an exact in-process command/payload.
+- [ ] Live restart/recovery probe on the pinned CLI is not run in this slice: echo’s earlier lifecycle probe covered durable idle resume/cursor replay; OpenCode end-to-end is blocked by its empty-project CLI hang. Do not run PAYG without explicit approval; Contributor mode remains unchanged.
 
 ### Task 13: Add approval bridge and narration (conditional on UI gate)
 

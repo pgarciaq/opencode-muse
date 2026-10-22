@@ -4,7 +4,7 @@ import type {
   LanguageModelV3StreamPart,
 } from "@ai-sdk/provider";
 import { createHash } from "node:crypto";
-import { MspCommandRejectedError, MuseBridgeError, MuseUnsupportedInputError, MuseUnsupportedRequestError, MspProtocolError, MspTransportError } from "../errors.js";
+import { MspCommandRejectedError, MuseBridgeError, MuseTranscriptDivergedError, MuseUnsupportedInputError, MuseUnsupportedRequestError, MspProtocolError, MspTransportError } from "../errors.js";
 import type { MspNotification } from "../msp/client.js";
 import { MUSE_CONTEXT_HEADERS, readRequestContext } from "./context.js";
 import { classifyMetaRequest, makeCompactionDigest, makeLocalTitle, type MetaRequestClass } from "./meta.js";
@@ -23,6 +23,10 @@ export interface MuseTurnHost {
   command<TResult extends object = Record<string, unknown>>(
     method: string,
     params: Record<string, unknown> & { commandId: string },
+  ): Promise<TResult>;
+  request<TResult extends object = Record<string, unknown>>(
+    method: string,
+    params?: Record<string, unknown>,
   ): Promise<TResult>;
   subscribe(sessionId: string, after?: string, signal?: AbortSignal): AsyncIterable<MspNotification>;
   close?(): Promise<void>;
@@ -86,13 +90,15 @@ async function submitCommand(
   await session.recordPendingCommand?.({ commandId, method, fingerprint: requestFingerprint });
   try {
     const result = await session.host.command(method, requestParams);
-    try {
-      await session.clearPendingCommand?.(commandId);
-    } catch {
-      // The command ACK proves its outcome. Keep the conservative pending
-      // fingerprint; the manager clears acknowledged transaction commands at
-      // terminal completion. Never discard a successful model turn because a
-      // registry cleanup write failed after the remote side effect.
+    if (method !== "turn/start") {
+      try {
+        await session.clearPendingCommand?.(commandId);
+      } catch {
+        // The command ACK proves its outcome. Keep the conservative pending
+        // fingerprint; the manager clears acknowledged transaction commands at
+        // terminal completion. Never discard a successful model turn because a
+        // registry cleanup write failed after the remote side effect.
+      }
     }
     return result as Record<string, unknown>;
   } catch (error) {
@@ -148,6 +154,41 @@ function eventTurnId(notification: MspNotification, itemTurnIds: Map<string, str
   if (typeof item?.turnId === "string") return item.turnId;
   if (notification.method === "item/delta" && typeof params.itemId === "string") return itemTurnIds.get(params.itemId);
   return undefined;
+}
+
+async function* pageGapNotifications(
+  host: MuseTurnHost,
+  sessionId: string,
+  gap: { after: string; next: string },
+): AsyncIterable<MspNotification> {
+  let cursor = gap.after;
+  for (let pageNumber = 0; pageNumber < 100; pageNumber += 1) {
+    const requestCursor = cursor;
+    const page = await host.request<{ events?: unknown; nextCursor?: unknown }>("view/page", {
+      sessionId,
+      cursor,
+      direction: "forward",
+      limit: 1000,
+    });
+    if (!Array.isArray(page.events)) throw new MspProtocolError("view/page");
+    for (const event of page.events) {
+      if (typeof event !== "object" || event === null) throw new MspProtocolError("view/page");
+      const record = event as { method?: unknown; params?: unknown };
+      const params = record.params as Record<string, unknown> | undefined;
+      if (typeof record.method !== "string" || !params || params.sessionId !== sessionId || typeof params.viewCursor !== "string") {
+        throw new MspProtocolError("view/page");
+      }
+      if (params.viewCursor === gap.next) return;
+      if (params.viewCursor === cursor) throw new MspProtocolError("view/page");
+      cursor = params.viewCursor;
+      yield { jsonrpc: "2.0", method: record.method, params };
+    }
+    if (page.nextCursor === null || typeof page.nextCursor !== "string" || page.nextCursor === requestCursor) {
+      throw new MspProtocolError("view/page");
+    }
+    cursor = page.nextCursor;
+  }
+  throw new MspProtocolError("view/page");
 }
 
 export async function runMuseTurn(
@@ -222,26 +263,48 @@ export async function runMuseTurn(
     const events: AsyncIterable<MspNotification> = {
       [Symbol.asyncIterator]: async function* () {
         const itemTurnIds = new Map<string, string>();
+        const seenCursors = new Set<string>();
+        const processNotification = async function* (notification: MspNotification): AsyncIterable<MspNotification> {
+          const params = notification.params ?? {};
+          if (params.sessionId !== session.sessionId) return;
+          if (typeof params.viewCursor === "string") await session.updateCursor?.(params.viewCursor);
+          const notificationTurnId = eventTurnId(notification, itemTurnIds);
+          if (notificationTurnId !== turnId) return;
+          yield notification;
+          if (notification.method === "turn/completed" || notification.method === "turn/unqueued" || notification.method === "turn/retracted") {
+            terminalSeen = true;
+            const terminal = notification.method === "turn/completed" && typeof params.terminal === "string"
+              ? params.terminal
+              : notification.method === "turn/unqueued" ? "unqueued" : "retracted";
+            await session.recordTurnCompleted?.(turnId!, terminal, params.usage as Record<string, unknown> | undefined);
+            if (terminal === "completed" && transcriptFingerprints) {
+              await session.commitTranscriptFingerprints?.(transcriptFingerprints);
+            }
+          }
+        };
         try {
           let next = await firstNotification!;
           while (!next.done) {
             const notification = next.value;
             const params = notification.params ?? {};
-            const notificationTurnId = eventTurnId(notification, itemTurnIds);
-            if (notificationTurnId === turnId) {
-              if (typeof params.viewCursor === "string") await session.updateCursor?.(params.viewCursor);
-              yield notification;
-              if (notification.method === "turn/completed" || notification.method === "turn/unqueued" || notification.method === "turn/retracted") {
-                terminalSeen = true;
-                const terminal = notification.method === "turn/completed" && typeof params.terminal === "string"
-                  ? params.terminal
-                  : notification.method === "turn/unqueued" ? "unqueued" : "retracted";
-                await session.recordTurnCompleted?.(turnId!, terminal, params.usage as Record<string, unknown> | undefined);
-                if (terminal === "completed" && transcriptFingerprints) {
-                  await session.commitTranscriptFingerprints?.(transcriptFingerprints);
-                }
-                return;
+            if (notification.method === "view/gap" && params.sessionId === session.sessionId) {
+              if (typeof params.after !== "string" || typeof params.next !== "string") throw new MspProtocolError("view/gap");
+              for await (const replay of pageGapNotifications(session.host, session.sessionId, { after: params.after, next: params.next })) {
+                const replayCursor = replay.params?.viewCursor;
+                if (typeof replayCursor === "string" && seenCursors.has(replayCursor)) continue;
+                if (typeof replayCursor === "string") seenCursors.add(replayCursor);
+                for await (const output of processNotification(replay)) yield output;
+                if (terminalSeen) return;
               }
+            } else {
+              const viewCursor = params.viewCursor;
+              if (typeof viewCursor === "string" && seenCursors.has(viewCursor)) {
+                next = await subscription!.next();
+                continue;
+              }
+              if (typeof viewCursor === "string") seenCursors.add(viewCursor);
+              for await (const output of processNotification(notification)) yield output;
+              if (terminalSeen) return;
             }
             next = await subscription!.next();
           }
@@ -310,7 +373,8 @@ function contextErrorToException(error: { code: string; field: string }): MuseBr
   return new MuseBridgeError("MUSE_UNSUPPORTED_REQUEST", `Muse model request context is ${error.code} (${error.field})`, false);
 }
 
-function inputErrorToException(error: { code: string; field?: string; mediaType?: string }): MuseUnsupportedInputError {
+function inputErrorToException(error: { code: string; field?: string; mediaType?: string }): Error {
+  if (error.code === "transcript-diverged") return new MuseTranscriptDivergedError();
   return new MuseUnsupportedInputError(error.field ?? error.mediaType ?? error.code);
 }
 

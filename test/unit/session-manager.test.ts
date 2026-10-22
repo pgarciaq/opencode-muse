@@ -281,6 +281,23 @@ describe("MuseSessionManager", () => {
     await manager.close();
   });
 
+  test("sessionManager.keepsMonitoringWhenAPerEventCursorWriteFails", async () => {
+    const root = tempRoot();
+    const directory = join(root, "project");
+    mkdirSync(directory);
+    const registry = new SessionRegistry({ stateDirectory: root });
+    const { manager } = managerAt(root, false, false, registry);
+    const binding = await manager.resolveSession(context("ses_oc_1", directory));
+    const update = registry.updateCursor.bind(registry);
+    registry.updateCursor = async () => { throw new Error("disk temporarily unavailable"); };
+
+    await expect(binding.updateCursor?.("cursor-unpersisted")).resolves.toBeUndefined();
+    registry.updateCursor = update;
+    expect((await registry.get("ses_oc_1", workspaceFingerprint(directory)))?.viewCursor).toBe("head-1");
+    await binding.release?.();
+    await manager.close();
+  });
+
   test("sessionManager.rejectsWorkspaceChangeForAnExistingOpenCodeSession", async () => {
     const root = tempRoot();
     const { manager } = managerAt(root);

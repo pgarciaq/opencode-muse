@@ -145,14 +145,14 @@ The compatibility probes in Tasks 1, 2, 4, and 5 of the implementation plan are 
 
 ### Slice 10: Session recovery, rewind, and workspace safety
 
-**Files:** `src/session/manager.ts`, `src/session/registry.ts`, `src/session/workspace-lock.ts`, `test/integration/session-recovery.test.ts`, `test/integration/rewind-fork.test.ts`.
+**Files:** `src/session/manager.ts`, `src/session/registry.ts`, `src/session/workspace-lock.ts`, `src/model/language-model.ts`, `test/integration/session-recovery.test.ts`, `test/integration/rewind-fork.test.ts`.
 
-- **Red:** Add crash-point tests for before ack, after ack, mid-stream, after `turn/foregroundCompleted`, and view gap; assert no new command ID is used for an ambiguous side effect.
-- **Red:** Add `recovery.rejectsAmbiguousPendingCommand`, `recovery.resumesDurableSessionAtCursor`, `rewind.failsClearlyWhileForkGateIsBlocked`, `fork.usesSeparateMuseSessionWhenAvailable`, and `rewind.doesNotRollbackFilesystem`.
-- **Green:** Implement recovery from durable session/cursor state and exact same-ID retries only with deterministic payload reconstruction. Rewind/fork stays unsupported in v1 and is restored only under follow-up #20 after the runtime gate passes.
+- **Red:** Add recovery tests for command pending before ack, accepted turn before view completion, persisted mid-stream cursor, foreground-complete/background-pending, and `view/gap`; assert no new command ID is used for an ambiguous side effect.
+- **Red:** Add `recovery.rejectsAmbiguousPendingCommand`, `recovery.resumesDurableIdleSessionAtCursor`, `recovery.rejectsActiveSnapshotTurn`, `rewind.failsClearlyWhileForkGateIsBlocked`, `fork.startsASeparateMuseSession`, and `rewind.doesNotRollbackFilesystem`.
+- **Green:** Reuse a pending ID only inside the SDK's exact in-process command retry. After restart, if the exact command payload is not persisted/reconstructable, require explicit user recovery choice. Resume only confirmed durable idle sessions; explicitly cut forks remain excluded from v1 and tracked by #20.
 - **Green:** Acquire a workspace lock before the Muse turn and retain it through terminal completion/pending approval/background activity.
 - **Refactor:** Keep registry transitions atomic and session manager as the sole owner of host/lock lifetimes.
-- **Verification:** `bun test test/integration/session-recovery.test.ts test/integration/rewind-fork.test.ts`; opt-in PAYG test proves pinned CLI durability and replay.
+- **Verification:** `bun test test/integration/session-recovery.test.ts test/integration/rewind-fork.test.ts` plus focused fake-MSP gap recovery; prior echo probe established the exercised durable idle resume/cursor subset. No PAYG probe is authorized by this task; Contributor mode remains unchanged.
 
 ### Slice 11: Approvals, narration, and structured input (conditional)
 
