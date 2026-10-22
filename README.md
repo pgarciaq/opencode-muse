@@ -13,11 +13,12 @@ credential-extraction approach under review in that repo's
 
 ## Status
 
-Design v1.3 and the implementation/TDD plans are approved. Implementation has
-started with the compatibility gates; see the
+Design v1.3 was the approved baseline; the working v1.4 design incorporates
+runtime findings. Core implementation is underway. Rewind/fork is deferred
+until Muse fixes the Linux birth-time failure (tracked in
+[issue #20](https://github.com/pgarciaq/opencode-muse/issues/20)); see the
 [v1 tracking issue](https://github.com/pgarciaq/opencode-muse/issues/2) for
-current progress. Muse lifecycle/media and OpenChamber UI probes remain gates
-before the features that depend on them.
+remaining lifecycle and OpenChamber UI gates.
 
 ## Credits and references
 

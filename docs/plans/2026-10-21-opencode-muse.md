@@ -124,7 +124,7 @@ Create focused modules; adjust names only to match actual pinned SDK exports, an
 - [ ] Investigate alternate official CLI/host routes for audio and PDF and perform a strict-output probe if one is exposed; until then, do not claim model-level limitations.
 - [ ] Verify whether a successful fork cut at Muse turn N excludes all later completed turns and whether it changes workspace files (it must not be treated as a filesystem rollback); blocked until the explicit fork call succeeds on a supported target.
 
-**Gate:** Restart resume is supported only for a matching runtime that reports durable sessions and passes cursor replay; the isolated echo host passed this subset, but a live Meta host remains unverified. The Muse 1.4.11/Linux fork failure is a hard stop for rewind/fork implementation: do not implement or advertise rewind until the runtime error is fixed or the explicit-cut probe passes on a supported target. Live model/media/UI-dependent work remains gated on the corresponding probes.
+**Gate:** Echo and subscription-backed Meta both reported durable sessions; cursor replay and reconnect resume passed for the exercised terminal event. This does not cover view-gap, cancel/interrupt/unqueue, or all item-delta/usage cases. The Muse 1.4.11/Linux fork failure is a hard stop for rewind/fork implementation: do not implement or advertise rewind until the runtime error is fixed or the explicit-cut probe passes on a supported target. Live approval and alternate-media work remains gated on the corresponding probes.
 
 ### Task 5: Probe OpenChamber UI and approval feasibility
 
@@ -134,11 +134,11 @@ Create focused modules; adjust names only to match actual pinned SDK exports, an
 
 **Interfaces:** Use a test plugin against the user's OpenChamber/OpenCode runtime; do not alter OpenChamber source.
 
-- [ ] Confirm a provider with a fallback model is visible when Muse is missing or logged out.
-- [ ] Confirm `ctx.integration` auth methods are visible and can launch the `muse login` flow without logging raw stdout/stderr.
-- [ ] Check whether the permission UI can display Muse's dynamic available-choice labels/scopes and return a specific choice; also test a changed approval stage/stale requirement.
-- [ ] Check whether any available UI can collect the complete structured `userInput/requested` schema (single/multiple selection and free text). If not, record it as unsupported in v1.
-- [ ] Verify whether OpenChamber detects/undoes files changed by Muse outside OpenCode-native tools. Record observed behavior; do not infer it from file watching alone.
+- [ ] Runtime-test a provider with a fallback model while Muse is missing or logged out.
+- [x] Source-inspect `ctx.integration` auth presentation: the current OpenChamber provider UI handles OAuth/external/key methods but not command methods, so a plugin `muse login` button is not established. Use manual official-CLI login; runtime visibility remains unverified.
+- [x] Source-inspect permission choices: UI offers generic allow-once/always/reject and cannot faithfully display arbitrary Muse choice IDs/labels/scopes. Defer Muse approval UI; changed stages/stale requirements were not runtime-tested.
+- [ ] Runtime-check whether any available UI can collect the complete structured `userInput/requested` schema (single/multiple selection and free text). Until proven, record it as unsupported in v1.
+- [ ] Runtime-verify whether OpenChamber detects/undoes files changed by Muse outside OpenCode-native tools. Source inspection only shows message/file restoration to the composer, not workspace rollback; do not infer file restore from file watching.
 
 **Gate:** If auth methods are not surfaced, use the documented manual `muse login` fallback. If dynamic approvals cannot be represented, defer the approval UI rather than mapping to generic allow/deny. Do not implement structured user input without a matching UI.
 
