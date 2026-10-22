@@ -268,20 +268,12 @@ Create focused modules; adjust names only to match actual pinned SDK exports, an
 
 ### Task 14: Add safe auth UX and OpenChamber integration fallback
 
-**Files:**
-- Create: `src/auth.ts`
-- Create: `test/unit/auth.test.ts`, `test/integration/auth-ui.test.ts`
-- Modify: `README.md`
+**Gate result:** OpenChamber's current UI does not surface plugin command auth methods, and no exact billing/auth failure was verified on the pinned CLI. Do not add `src/auth.ts`, spawn `muse login` from OpenCode, or infer authentication from an empty session list. Use the official CLI manually and preserve generic typed Muse errors.
 
-**Interfaces:** `probeMuseAuthState(host) -> AuthState`; `runMuseLogin(processAdapter, ui) -> LoginResult`; `classifyMuseFailure(turnError) -> UserFacingError`.
-
-- [ ] Test logged-out behavior at every observed point in the pinned CLI lifecycle; empty `session/list` must not imply signed-in.
-- [ ] Test only the exact verified billing failure maps to subscription/PAYG advice; generic `modelError` remains a generic typed failure.
-- [ ] Test `muse login` stdio/TTY path, cancellation, timeout, missing CLI, and that raw stdout/stderr is never persisted or logged.
-- [ ] Verify auth methods appear in OpenChamber; if not, README documents manual `muse login` and no unavailable sign-in card is promised.
-- [ ] Add a no-config-read regression test by instrumenting the filesystem/process/logging boundaries; assert the plugin never reads Muse config paths, exports credential values, or logs sentinel secret values.
-- [ ] Implement the verified auth-state probe, safe login relay, and typed user-facing auth/billing errors; if UI integration is unavailable, expose manual-login guidance only.
-- [ ] Run tests and manual UI verification.
+- [x] Document manual `muse login`, no sign-in card promise, no credential reads, and no Contributor/PAYG mode changes in README.
+- [x] Preserve safe generic MSP/turn failures; no auth file parsing or raw stdout/stderr logging is implemented.
+- [x] Verify UI auth method limitation via source inspection (#6); do not implement a login relay without a UI surface.
+- [x] Keep credential/config path access prohibited and state-directory safety tests in place.
 
 ### Task 15: Final end-to-end gates and packaging
 

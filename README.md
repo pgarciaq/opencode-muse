@@ -20,6 +20,34 @@ until Muse fixes the Linux birth-time failure (tracked in
 [v1 tracking issue](https://github.com/pgarciaq/opencode-muse/issues/2) for
 remaining lifecycle and OpenChamber UI gates.
 
+## Authentication
+
+Sign in through the official Muse Code CLI before using the provider:
+
+```sh
+muse login
+```
+
+OpenChamber's current provider UI does not expose OpenCode plugin `command`
+authentication methods, so this plugin does not promise a sign-in button. It
+uses the Muse CLI's existing account/configuration through `muse serve`; it
+never reads Muse credential files, exports tokens, or changes subscription
+mode. If the CLI has no usable model catalog, the provider remains a disabled
+setup placeholder rather than advertising a model that will fail on use.
+
+## V1 limitations
+
+- Muse approvals and structured `userInput/*` prompts are unavailable through
+  the current OpenChamber UI; unsupported server requests fail closed. Muse
+  tools do not become OpenCode tool calls.
+- Direct MSP input supports text/images and verified video uploads. Audio, PDF,
+  and strict JSON constraints have no verified direct-MSP representation.
+- OpenCode transcript rewind/fork is unsupported on Muse 1.4.11/Linux until the
+  explicit fork probe passes ([#20](https://github.com/pgarciaq/opencode-muse/issues/20)).
+  The bridge does not roll back workspace files.
+- The bridge serializes writers per local workspace and may report a busy
+  session while another Muse turn is still completing in the background.
+
 ## Credits and references
 
 - [opencode-claude](https://github.com/openchamber/opencode-claude) — a

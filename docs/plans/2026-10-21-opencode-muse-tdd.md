@@ -164,12 +164,11 @@ The compatibility probes in Tasks 1, 2, 4, and 5 of the implementation plan are 
 
 ### Slice 12: Authentication UX and credential isolation
 
-**Files:** `src/auth.ts`, `src/errors.ts`, `test/unit/auth.test.ts`, `test/integration/auth-ui.test.ts`.
+**Gate result:** OpenChamber source inspection found no plugin command-auth flow and no exact pinned billing failure was verified. Do not add an auth subprocess relay or infer sign-in from an empty session list.
 
-- **Red:** Add `auth.doesNotTreatEmptySessionListAsSignedIn`, `auth.classifiesOnlyVerifiedBillingFailure`, `auth.neverReadsMuseConfig`, `auth.neverLogsSentinelSecret`, and `auth.loginCancellationIsSafe`.
-- **Green:** Implement the verified wire/CLI state probe and safe `muse login` relay; display manual instructions if the integration method is absent from OpenChamber.
-- **Refactor:** Keep CLI process handling injectable so tests never use a real credential or TTY.
-- **Verification:** `bun test test/unit/auth.test.ts`; manual UI verification confirms no raw stdout/stderr is persisted.
+- **No relay:** Adding an unavailable sign-in card/process path would violate the failed UI gate; no `src/auth.ts` is created.
+- **Manual fallback:** README documents `muse login` in a terminal; auth remains in the official CLI and generic typed errors remain generic.
+- **Verification:** source review and regression tests show no Muse config/credential reads or raw prompt/media/error logging. No live auth/billing probe was run.
 
 ### Slice 13: Final integration and package acceptance
 
