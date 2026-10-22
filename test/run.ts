@@ -12,6 +12,8 @@ import "./unit/prompt.test.ts";
 import "./unit/stream-mapping.test.ts";
 import "./unit/language-model.test.ts";
 import "./unit/session-manager.test.ts";
+import "./unit/meta-request.test.ts";
+import "./unit/fingerprint.test.ts";
 import "./integration/turn-bridge.test.ts";
 
 interface PackageMetadata {

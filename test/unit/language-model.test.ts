@@ -5,7 +5,8 @@ import { addRequestContextHeaders } from "../../src/model/context.js";
 import { openCodeModelId } from "../../src/catalog.js";
 import type { MuseModelSelection, RequestContext } from "../../src/types.js";
 import type { MspNotification } from "../../src/msp/client.js";
-import { MspCommandRejectedError } from "../../src/errors.js";
+import { MspCommandRejectedError, MspCommandTimeoutError } from "../../src/errors.js";
+import { fingerprintCompactionOutput } from "../../src/session/fingerprint.js";
 
 const modelID = openCodeModelId("tbh", "muse-wonder-1.0");
 const selection: MuseModelSelection = {
@@ -48,9 +49,13 @@ function fakeRuntime(options: {
   onTurnStart?: () => void;
   backgroundWaitAfterForeground?: Promise<void>;
   failTurnStart?: boolean;
+  timeoutTurnStart?: boolean;
   blockSubscription?: boolean;
   failRecordTurnAccepted?: boolean;
+  failClearPendingCommand?: boolean;
   currentSelection?: Pick<MuseModelSelection, "providerId" | "modelId" | "profileId">;
+  previousTranscriptFingerprints?: string[];
+  compactionFingerprints?: string[];
 } = {}) {
   const commands: Array<{ method: string; params: Record<string, unknown> }> = [];
   const order: string[] = [];
@@ -66,6 +71,7 @@ function fakeRuntime(options: {
       order.push(method);
       if (method === "turn/start") {
         options.onTurnStart?.();
+        if (options.timeoutTurnStart) throw new MspCommandTimeoutError(method, 10);
         if (options.failTurnStart) throw new MspCommandRejectedError(method, -32030, "commandRejected", false);
         return { turnId: "turn-1", disposition: options.disposition ?? "started" };
       }
@@ -113,10 +119,14 @@ function fakeRuntime(options: {
       modelId: "muse-wonder-1.0",
       profileId: "tbh",
     },
-    previousTranscriptFingerprints: [],
+    previousTranscriptFingerprints: options.previousTranscriptFingerprints ?? [],
+    compactionFingerprints: options.compactionFingerprints ?? [],
     contextAllowlist: [],
     ...(options.failRecordTurnAccepted ? {
       async recordTurnAccepted() { throw new Error("registry write failed"); },
+    } : {}),
+    ...(options.failClearPendingCommand ? {
+      async clearPendingCommand() { throw new Error("registry cleanup failed"); },
     } : {}),
     async release() { released += 1; markReleased(); },
   };
@@ -193,8 +203,136 @@ describe("Muse LanguageModelV3 bridge", () => {
     await expect(model.doGenerate({ ...callOptions(), responseFormat: { type: "json", schema: { type: "object" } } } as never))
       .rejects.toThrow(/responseFormat/);
     await expect(model.doGenerate({ prompt: [{ role: "user", content: [{ type: "text", text: "No context" }] }], headers: {} } as never))
-      .rejects.toThrow(/context/);
+      .rejects.toThrow(/generate/);
     expect(resolutions).toBe(0);
+  });
+
+  test("languageModel.answersUnhookedTitleAndCompactionLocallyWithoutResolvingMuse", async () => {
+    let resolutions = 0;
+    const fake = fakeRuntime();
+    const runtime: MuseLanguageRuntime = {
+      ...fake.runtime,
+      async resolveSession(context: RequestContext) {
+        resolutions += 1;
+        return fake.runtime.resolveSession(context);
+      },
+    };
+    const model = createMuseLanguageModel(runtime, modelID);
+    const title = await model.doGenerate({
+      headers: {},
+      prompt: [
+        { role: "system", content: "You are a title generator. Output only a short title." },
+        { role: "user", content: [{ type: "text", text: "Fix the login timeout." }] },
+      ],
+    } as never);
+    const compaction = await model.doGenerate({
+      headers: {},
+      maxOutputTokens: 300,
+      prompt: [
+        { role: "system", content: "You are tasked with summarizing conversations." },
+        { role: "user", content: [{ type: "text", text: "Initial request." }] },
+        { role: "assistant", content: [{ type: "text", text: "Completed response." }] },
+      ],
+    } as never);
+
+    expect(title.content).toEqual([{ type: "text", text: "Fix the login timeout." }]);
+    expect(compaction.content[0]).toMatchObject({ type: "text" });
+    expect((compaction.content[0] as { text: string }).text).toContain("Initial request.");
+    expect(resolutions).toBe(0);
+    expect(fake.commands).toEqual([]);
+  });
+
+  test("languageModel.rejectsUnknownStatelessGenerateWithoutResolvingMuse", async () => {
+    let resolutions = 0;
+    const fake = fakeRuntime();
+    const runtime: MuseLanguageRuntime = {
+      ...fake.runtime,
+      async resolveSession(context: RequestContext) {
+        resolutions += 1;
+        return fake.runtime.resolveSession(context);
+      },
+    };
+    const model = createMuseLanguageModel(runtime, modelID);
+    await expect(model.doGenerate({
+      headers: {},
+      prompt: [{ role: "user", content: [{ type: "text", text: "Answer without a session." }] }],
+    } as never)).rejects.toThrow(/generate/);
+    expect(resolutions).toBe(0);
+    expect(fake.commands).toEqual([]);
+  });
+
+  test("languageModel.continuesWhenTheExactCompactionSummaryWasObserved", async () => {
+    const summary = "Transcript digest: this exact summary is in the current prompt.";
+    const fake = fakeRuntime({
+      events: textEvents(),
+      previousTranscriptFingerprints: ["a".repeat(64), "b".repeat(64)],
+      compactionFingerprints: [fingerprintCompactionOutput(summary)],
+    });
+    const model = createMuseLanguageModel(fake.runtime, modelID);
+    const result = await model.doGenerate(callOptions({
+      prompt: [
+        { role: "user", content: [{ type: "text", text: summary }] },
+        { role: "user", content: [{ type: "text", text: "Continue with this request." }] },
+      ],
+    }));
+
+    expect(result.content).toEqual([{ type: "text", text: "Probe answer" }]);
+    expect(fake.commands.find((command) => command.method === "turn/start")?.params.input)
+      .toEqual([{ type: "text", text: "Continue with this request." }]);
+    await fake.releasedPromise;
+  });
+
+  test("languageModel.doesNotRebaseOnAnUnobservedCompactionCandidate", async () => {
+    const fake = fakeRuntime({
+      previousTranscriptFingerprints: ["a".repeat(64), "b".repeat(64)],
+      compactionFingerprints: [fingerprintCompactionOutput("summary expected but not persisted")],
+    });
+    const model = createMuseLanguageModel(fake.runtime, modelID);
+
+    await expect(model.doGenerate(callOptions({
+      prompt: [
+        { role: "user", content: [{ type: "text", text: "different summary text" }] },
+        { role: "user", content: [{ type: "text", text: "Continue." }] },
+      ],
+    }))).rejects.toThrow(/transcript-diverged/);
+    expect(fake.commands.some((command) => command.method === "turn/start")).toBe(false);
+  });
+
+  test("languageModel.continuesAfterOnlyAnObservedCompactionCandidate", async () => {
+    const summary = "Transcript digest: preserve this exact summary.";
+    const fake = fakeRuntime({
+      events: textEvents(),
+      previousTranscriptFingerprints: ["a".repeat(64), "b".repeat(64)],
+      compactionFingerprints: [fingerprintCompactionOutput(summary)],
+    });
+    const model = createMuseLanguageModel(fake.runtime, modelID);
+    const result = await model.doGenerate(callOptions({
+      prompt: [
+        { role: "user", content: [{ type: "text", text: summary }] },
+        { role: "user", content: [{ type: "text", text: "Continue with this request." }] },
+      ],
+    }));
+
+    expect(result.content).toEqual([{ type: "text", text: "Probe answer" }]);
+    expect(fake.commands.find((command) => command.method === "turn/start")?.params.input)
+      .toEqual([{ type: "text", text: "Continue with this request." }]);
+    await fake.releasedPromise;
+  });
+
+  test("languageModel.doesNotTreatAnUnobservedCompactionCandidateAsARebase", async () => {
+    const fake = fakeRuntime({
+      previousTranscriptFingerprints: ["a".repeat(64), "b".repeat(64)],
+      compactionFingerprints: [fingerprintCompactionOutput("expected summary")],
+    });
+    const model = createMuseLanguageModel(fake.runtime, modelID);
+
+    await expect(model.doGenerate(callOptions({
+      prompt: [
+        { role: "user", content: [{ type: "text", text: "different summary" }] },
+        { role: "user", content: [{ type: "text", text: "Continue." }] },
+      ],
+    }))).rejects.toThrow(/transcript-diverged/);
+    expect(fake.commands.some((command) => command.method === "turn/start")).toBe(false);
   });
 
   test("languageModel.turnStartRejectionClosesThePrestartedViewSubscription", async () => {
@@ -207,6 +345,16 @@ describe("Muse LanguageModelV3 bridge", () => {
     expect(fake.released).toBe(1);
   });
 
+  test("languageModel.keepsWorkspaceLeaseOnAmbiguousTurnStartTimeout", async () => {
+    const fake = fakeRuntime({ timeoutTurnStart: true, blockSubscription: true });
+    const model = createMuseLanguageModel(fake.runtime, modelID);
+    const error = await model.doGenerate(callOptions()).then(() => undefined, (reason: unknown) => reason as Error);
+
+    expect(error?.name).toBe("MspCommandTimeoutError");
+    expect(fake.subscriptionReturns).toBe(1);
+    expect(fake.released).toBe(0);
+  });
+
   test("languageModel.dischargesAnAcceptedTurnIfRecordingItsAckFails", async () => {
     const fake = fakeRuntime({ events: textEvents(), failRecordTurnAccepted: true });
     const model = createMuseLanguageModel(fake.runtime, modelID);
@@ -216,6 +364,16 @@ describe("Muse LanguageModelV3 bridge", () => {
     expect(fake.commands.some((command) => command.method === "turn/interrupt")).toBe(true);
     await fake.releasedPromise;
     expect(fake.released).toBe(1);
+  });
+
+  test("languageModel.continuesAnAckedTurnWhenClearingItsPendingFingerprintFails", async () => {
+    const fake = fakeRuntime({ events: textEvents(), failClearPendingCommand: true });
+    const model = createMuseLanguageModel(fake.runtime, modelID);
+    const result = await model.doGenerate(callOptions());
+
+    expect(result.content).toEqual([{ type: "text", text: "Probe answer" }]);
+    expect(fake.commands.filter((command) => command.method === "turn/start")).toHaveLength(1);
+    await fake.releasedPromise;
   });
 
   test("languageModel.doesNotTurnSessionGenerateIntoALiveMuseTurn", async () => {

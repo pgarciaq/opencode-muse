@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
 import type { LanguageModelV3FilePart, LanguageModelV3Prompt } from "@ai-sdk/provider";
+import { fingerprintTranscript } from "../session/fingerprint.js";
 
 export interface ContextFragment {
   label: string;
@@ -69,42 +69,17 @@ function safeMediaType(value: string): string {
   return /^[a-z0-9.+*-]+\/[a-z0-9.+*-]+$/.test(normalized) ? normalized : "unknown";
 }
 
-function digestBytes(bytes: Uint8Array): string {
-  return createHash("sha256").update(bytes).digest("hex");
-}
-
-function normalizeVisibleText(text: string): string {
-  return text.replace(/\r\n?/g, "\n").normalize("NFC");
-}
-
-function fingerprintMessage(message: LanguageModelV3Prompt[number]): string | undefined {
-  if (message.role !== "user" && message.role !== "assistant") return undefined;
-  const parts: Array<Record<string, string>> = [];
-  for (const part of message.content) {
-    if (part.type === "text") {
-      parts.push({ type: "text", digest: digestBytes(Buffer.from(normalizeVisibleText(part.text), "utf8")) });
-    } else if (part.type === "file") {
-      const data = part.data instanceof URL ? part.data.href : part.data;
-      const bytes = typeof data === "string" ? Buffer.from(data, "utf8") : data;
-      parts.push({ type: "file", mediaType: part.mediaType, digest: digestBytes(bytes) });
-    }
-    // Reasoning and tool traffic are not user-visible transcript lineage.
-  }
-  if (parts.length === 0) return undefined;
-  return digestBytes(Buffer.from(JSON.stringify({ role: message.role, parts }), "utf8"));
+export function fingerprintVisibleTranscript(prompt: LanguageModelV3Prompt): string[] {
+  return fingerprintTranscript(prompt);
 }
 
 function visibleMessages(prompt: LanguageModelV3Prompt): Array<{ message: LanguageModelV3Prompt[number]; fingerprint: string }> {
   const result: Array<{ message: LanguageModelV3Prompt[number]; fingerprint: string }> = [];
   for (const message of prompt) {
-    const fingerprint = fingerprintMessage(message);
+    const fingerprint = fingerprintTranscript([message])[0];
     if (fingerprint) result.push({ message, fingerprint });
   }
   return result;
-}
-
-export function fingerprintVisibleTranscript(prompt: LanguageModelV3Prompt): string[] {
-  return visibleMessages(prompt).map((entry) => entry.fingerprint);
 }
 
 function decodeBase64(value: string): Uint8Array | undefined {

@@ -214,6 +214,35 @@ export class SessionRegistry {
 
   async get(openCodeSessionId: string, workspaceFingerprint: string): Promise<SessionRegistryEntry | undefined> {
     this.assertLookup(openCodeSessionId, workspaceFingerprint);
+    const entry = await this.readEntry(openCodeSessionId);
+    if (entry && entry.workspaceFingerprint !== workspaceFingerprint) throw new RegistryWorkspaceMismatchError();
+    return entry;
+  }
+
+  async getForOpenCodeSession(openCodeSessionId: string): Promise<SessionRegistryEntry | undefined> {
+    if (!IDENTIFIER_PATTERN.test(openCodeSessionId)) throw new RegistryValidationError();
+    return this.readEntry(openCodeSessionId);
+  }
+
+  async recordCompactionCandidate(openCodeSessionId: string, fingerprint: string): Promise<void> {
+    if (!IDENTIFIER_PATTERN.test(openCodeSessionId) || !HASH_PATTERN.test(fingerprint)) throw new RegistryValidationError();
+    const entry = await this.readEntry(openCodeSessionId);
+    if (!entry) return;
+    this.write({ ...entry, compactionFingerprints: [fingerprint], updatedAt: this.now() });
+  }
+
+  async clearCompactionCandidate(openCodeSessionId: string, fingerprint: string): Promise<void> {
+    if (!IDENTIFIER_PATTERN.test(openCodeSessionId) || !HASH_PATTERN.test(fingerprint)) throw new RegistryValidationError();
+    const entry = await this.readEntry(openCodeSessionId);
+    if (!entry || !entry.compactionFingerprints.includes(fingerprint)) return;
+    this.write({
+      ...entry,
+      compactionFingerprints: entry.compactionFingerprints.filter((candidate) => candidate !== fingerprint),
+      updatedAt: this.now(),
+    });
+  }
+
+  private async readEntry(openCodeSessionId: string): Promise<SessionRegistryEntry | undefined> {
     const path = this.entryPath(openCodeSessionId);
     if (!existsSync(path)) return undefined;
     let stat;
@@ -248,10 +277,8 @@ export class SessionRegistry {
       }
       const entry = normalizeEntry(parsed.entry, this.now);
       if (entry.openCodeSessionId !== openCodeSessionId) throw new RegistryValidationError();
-      if (entry.workspaceFingerprint !== workspaceFingerprint) throw new RegistryWorkspaceMismatchError();
       return entry;
     } catch (error) {
-      if (error instanceof RegistryWorkspaceMismatchError) throw error;
       return this.quarantine(path);
     }
   }

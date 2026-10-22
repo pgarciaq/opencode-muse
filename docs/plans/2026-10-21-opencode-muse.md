@@ -227,15 +227,18 @@ Create focused modules; adjust names only to match actual pinned SDK exports, an
 
 **Files:**
 - Create: `src/model/meta.ts`, `src/session/fingerprint.ts`
+- Modify: `src/model/prompt.ts`, `src/model/language-model.ts`, `src/session/registry.ts`, `src/session/manager.ts`, `src/provider.ts`
 - Create: `test/unit/meta-request.test.ts`, `test/unit/fingerprint.test.ts`
 
 **Interfaces:** `classifyMetaRequest(kind, prompt) -> "title" | "compaction" | "unsupported-generate" | "agent"`; `makeLocalTitle(prompt) -> string`; `makeCompactionDigest(prompt, maxOutputTokens) -> string`; `fingerprintTranscript(prompt) -> Fingerprint`.
 
-- [ ] Test title detection via `kind` and unhooked prompt shape; no-session unknown generation returns the explicit unsupported error, never starts a Muse session.
-- [ ] Test bounded transcript digest preserves initial request/recent exchanges, never claims inferred decisions, and is deterministic under repeated compaction and multilingual content.
-- [ ] Test compaction candidate is committed only after the exact output hash appears in a subsequent prompt; cancellation/unpersisted output does not update the ledger.
-- [ ] Test same-count earlier-message edits and genuine rewind diverge; exact observed compaction continues the existing Muse session.
-- [ ] Run tests red, implement deterministic local handlers/fingerprints, then run green and an OpenCode compaction smoke test.
+- [x] Test title detection via `kind` and narrow unhooked prompt shapes; unknown stateless generate returns unsupported without resolving/starting a Muse session.
+- [x] Test bounded deterministic digest preserves the initial request and recent complete exchanges, omits tool/system traffic, makes no inferred-decision claim, and handles multilingual text.
+- [x] Persist only the compaction output hash; treat a history change as compaction only when that exact text hash appears later. A successful following Muse turn commits the compacted fingerprint baseline; failed/cancelled turns leave the candidate pending.
+- [x] Test same-count earlier-message edits and genuine rewind diverge; exact observed compaction continues the existing Muse session.
+- [x] Register local zero-model-call title/compaction session hooks and V3 prompt-shape fallback; candidate updates serialize through the workspace lock.
+- [x] Run tests red, implement deterministic local handlers/fingerprints, then run green (131 tests plus build and strict test type-check).
+- [ ] Pinned OpenCode local-meta runtime smoke remains blocked by the same empty-project CLI/provider-list timeout; a bounded 10s plugin run returned `OPEN_CODE_MODELS_TIMEOUT`. Rerun once OpenCode responds.
 
 ### Task 12: Add Muse session lifecycle, restart recovery, and rewind
 

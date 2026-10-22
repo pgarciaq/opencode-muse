@@ -136,12 +136,12 @@ The compatibility probes in Tasks 1, 2, 4, and 5 of the implementation plan are 
 
 ### Slice 9: Local title, compaction digest, and lineage
 
-**Files:** `src/model/meta.ts`, `src/session/fingerprint.ts`, `src/session/registry.ts`, `test/unit/meta-request.test.ts`, `test/unit/fingerprint.test.ts`.
+**Files:** `src/model/meta.ts`, `src/session/fingerprint.ts`, `src/session/registry.ts`, `src/session/manager.ts`, `src/model/prompt.ts`, `src/model/language-model.ts`, `src/provider.ts`, `test/unit/meta-request.test.ts`, `test/unit/fingerprint.test.ts`.
 
-- **Red:** Add `meta.titleUsesPromptPrefixOrFallback`, `meta.unknownStatelessGenerateDoesNotStartMuse`, `compaction.digestIsBoundedAndDeterministic`, `lineage.commitsCompactionOnlyAfterObserved`, and `lineage.detectsSameCountEditAsRewind`.
-- **Green:** Implement local title and bounded transcript digest; persist only fingerprints/candidate output hashes; classify only an observed successful compaction as compaction.
+- **Red:** Add `meta.titleUsesFirstUserOrFallback`, `meta.classifiesOnlyNarrowUnhookedShapes`, `meta.unknownStatelessGenerateDoesNotStartMuse`, `compaction.digestIsBoundedAndDeterministic`, `lineage.fingerprintsVisibleOrderedMessages`, `lineage.commitsCompactionOnlyAfterObserved`, `lineage.rejectsSameCountEdit`, and local-hook tests that observe no Muse turn.
+- **Green:** Implement local title and bounded transcript digest; persist only the pending compaction output hash, never its text; continue a Muse session only when that exact candidate is observed in a later prompt, and clear the candidate after that turn reaches terminal completion.
 - **Refactor:** Separate prompt-shape detection from summary construction and use canonical fingerprint helpers in rewind logic.
-- **Verification:** `bun test test/unit/meta-request.test.ts test/unit/fingerprint.test.ts`; pinned OpenCode compaction smoke test confirms no Muse turn for title/compaction.
+- **Verification:** focused pure tests plus provider hook/LanguageModel local-route tests; run the bounded pinned OpenCode compaction smoke if the CLI provider-list baseline responds (currently times out even in an empty project).
 
 ### Slice 10: Session recovery, rewind, and workspace safety
 

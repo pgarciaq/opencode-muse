@@ -10,7 +10,7 @@ import {
   RegistryWorkspaceMismatchError,
   WorkspaceBusyError,
 } from "../errors.js";
-import type { SessionRegistry, SessionRegistryEntry } from "./registry.js";
+import type { PendingCommandRecord, SessionRegistry, SessionRegistryEntry } from "./registry.js";
 import type { LockLease, WorkspaceLock } from "./workspace-lock.js";
 import type { MuseTurnSession } from "../model/language-model.js";
 
@@ -34,6 +34,7 @@ interface ManagedBinding extends MuseTurnSession {
   viewCursor?: string;
   transcriptFingerprints: string[];
   compactionFingerprints: string[];
+  pendingCommands: Record<string, PendingCommandRecord>;
   activeTurnId?: string;
   currentSelection: { providerId: string; modelId: string; profileId: string | null };
   lease?: LockLease;
@@ -175,26 +176,40 @@ export class MuseSessionManager {
         previousTranscriptFingerprints: stored?.transcriptFingerprints ?? [],
         transcriptFingerprints: stored?.transcriptFingerprints ?? [],
         compactionFingerprints: stored?.compactionFingerprints ?? [],
+        pendingCommands: stored?.pendingCommands ?? {},
         contextAllowlist: [],
         lease,
         async recordPendingCommand(input) {
+          binding.pendingCommands[input.commandId] = { method: input.method, fingerprint: input.fingerprint };
           await managerOptions.registry.recordPendingCommand(context.sessionID, fingerprint, input);
         },
         async clearPendingCommand(commandId) {
           await managerOptions.registry.clearPendingCommand(context.sessionID, fingerprint, commandId);
+          delete binding.pendingCommands[commandId];
         },
         async recordTurnAccepted(_commandId, turnId) {
+          const previous = binding.activeTurnId;
           binding.activeTurnId = turnId;
-          await persist();
+          try { await persist(); } catch (error) {
+            binding.activeTurnId = previous;
+            throw error;
+          }
         },
         async updateCursor(cursor) {
           binding.viewCursor = cursor;
           await managerOptions.registry.updateCursor(context.sessionID, fingerprint, cursor);
         },
         async recordTurnCompleted(_turnId, _terminal) {
+          const previousActive = binding.activeTurnId;
+          const previousPending = binding.pendingCommands;
           binding.activeTurnId = undefined;
           binding.replayAfterCursor = undefined;
-          await persist();
+          binding.pendingCommands = {};
+          try { await persist(); } catch (error) {
+            binding.activeTurnId = previousActive;
+            binding.pendingCommands = previousPending;
+            throw error;
+          }
         },
         async release() {
           const currentLease = binding.lease;
@@ -202,9 +217,18 @@ export class MuseSessionManager {
           await currentLease?.release();
         },
         async commitTranscriptFingerprints(fingerprints) {
+          const previousTranscript = binding.transcriptFingerprints;
+          const previousFingerprints = binding.previousTranscriptFingerprints;
+          const previousCompactions = binding.compactionFingerprints;
           binding.transcriptFingerprints = [...fingerprints];
           binding.previousTranscriptFingerprints = [...fingerprints];
-          await persist();
+          binding.compactionFingerprints = [];
+          try { await persist(); } catch (error) {
+            binding.transcriptFingerprints = [...previousTranscript];
+            binding.previousTranscriptFingerprints = [...previousFingerprints];
+            binding.compactionFingerprints = [...previousCompactions];
+            throw error;
+          }
         },
       };
       const managerOptions = this.options;
@@ -236,6 +260,28 @@ export class MuseSessionManager {
     }));
   }
 
+  async recordCompactionCandidate(openCodeSessionId: string, fingerprint: string): Promise<void> {
+    const binding = this.bindings.get(openCodeSessionId);
+    if (binding) {
+      const lease = await this.options.workspaceLock.acquire(binding.workspaceFingerprint, openCodeSessionId);
+      try {
+        binding.compactionFingerprints = [fingerprint];
+        await this.persistBinding(openCodeSessionId, binding);
+      } finally {
+        await lease.release();
+      }
+      return;
+    }
+    const stored = await this.options.registry.getForOpenCodeSession(openCodeSessionId);
+    if (!stored) return;
+    const lease = await this.options.workspaceLock.acquire(stored.workspaceFingerprint, openCodeSessionId);
+    try {
+      await this.options.registry.recordCompactionCandidate(openCodeSessionId, fingerprint);
+    } finally {
+      await lease.release();
+    }
+  }
+
   private async applySelectionIfChanged(
     binding: ManagedBinding,
     selected: { providerId: string; modelId: string; profileId: string | null },
@@ -259,20 +305,28 @@ export class MuseSessionManager {
     };
     const commandFingerprint = createHash("sha256").update(JSON.stringify({ method, params })).digest("hex");
     const openCodeSessionId = this.openCodeSessionIdFor(binding);
-    await this.options.registry.recordPendingCommand(openCodeSessionId, binding.workspaceFingerprint, {
-      commandId,
-      method,
-      fingerprint: commandFingerprint,
-    });
+    const pending = { method, fingerprint: commandFingerprint };
+    binding.pendingCommands[commandId] = pending;
+    try {
+      await this.options.registry.recordPendingCommand(openCodeSessionId, binding.workspaceFingerprint, {
+        commandId,
+        ...pending,
+      });
+    } catch (error) {
+      delete binding.pendingCommands[commandId];
+      throw error;
+    }
     try {
       await binding.host.command(method, params);
     } catch (error) {
       if (error instanceof MspCommandRejectedError) {
         await this.options.registry.clearPendingCommand(openCodeSessionId, binding.workspaceFingerprint, commandId);
+        delete binding.pendingCommands[commandId];
       }
       throw error;
     }
     await this.options.registry.clearPendingCommand(openCodeSessionId, binding.workspaceFingerprint, commandId);
+    delete binding.pendingCommands[commandId];
     binding.currentSelection = selected;
     await this.persistBinding(openCodeSessionId, binding);
   }
@@ -286,7 +340,6 @@ export class MuseSessionManager {
   }
 
   private async persistBinding(openCodeSessionId: string, binding: ManagedBinding): Promise<void> {
-    const pendingCommands = (await this.options.registry.get(openCodeSessionId, binding.workspaceFingerprint))?.pendingCommands ?? {};
     await this.options.registry.put({
       openCodeSessionId,
       museSessionId: binding.museSessionId,
@@ -299,7 +352,7 @@ export class MuseSessionManager {
       ...(binding.activeTurnId ? { activeTurnId: binding.activeTurnId } : {}),
       transcriptFingerprints: binding.transcriptFingerprints,
       compactionFingerprints: binding.compactionFingerprints,
-      pendingCommands,
+      pendingCommands: binding.pendingCommands,
     });
   }
 }

@@ -11,6 +11,8 @@ import { MuseSessionManager } from "./session/manager.js";
 import { SessionRegistry } from "./session/registry.js";
 import { WorkspaceLock } from "./session/workspace-lock.js";
 import { MuseBridgeError } from "./errors.js";
+import { makeCompactionDigest, makeLocalTitle } from "./model/meta.js";
+import { fingerprintCompactionOutput } from "./session/fingerprint.js";
 
 type ProviderEditor = Parameters<Parameters<Plugin.Context["provider"]["transform"]>[0]>[0];
 
@@ -20,6 +22,7 @@ export type MuseProviderContext = Pick<Plugin.Context, "provider" | "session" | 
 
 export interface ProviderPluginDependencies {
   fetchCatalog?: (directory: string) => Promise<MuseCatalogSnapshot>;
+  createSessionManager?: () => MuseSessionManager;
 }
 
 export interface MuseProviderRuntime {
@@ -62,16 +65,17 @@ export async function createProviderPlugin(
 ): Promise<MuseProviderRuntime> {
   const catalog = new CatalogCache();
   const stateDirectory = SessionRegistry.resolveStateDirectory();
-  const sessions = new MuseSessionManager({
-    stateDirectory,
-    registry: new SessionRegistry({ stateDirectory }),
-    workspaceLock: new WorkspaceLock({ stateDirectory }),
-  });
+  const sessions = dependencies.createSessionManager?.() ?? new MuseSessionManager({
+      stateDirectory,
+      registry: new SessionRegistry({ stateDirectory }),
+      workspaceLock: new WorkspaceLock({ stateDirectory }),
+    });
   const registration = await ctx.provider.transform((providers: ProviderEditor) => {
     providers.add({ info: providerInfo(moduleUrl), models: catalog.models });
   });
   let sessionHookRegistration: Awaited<ReturnType<Plugin.Context["session"]["hook"]>> | undefined;
   let languageHookRegistration: Awaited<ReturnType<Plugin.Context["aisdk"]["hook"]>> | undefined;
+  const localMetaRegistrations: Array<Awaited<ReturnType<Plugin.Context["session"]["hook"]>>> = [];
   try {
     sessionHookRegistration = await ctx.session.hook("model.request", async (request) => {
       addRequestContextHeaders(request.headers, request, ctx.location.directory);
@@ -87,11 +91,23 @@ export async function createProviderPlugin(
         resolveSession: (context) => sessions.resolveSession(context),
       }, input.model.modelID);
     }, { providerID: MUSE_PROVIDER_ID });
+    localMetaRegistrations.push(await ctx.session.hook("title", async (input) => {
+      input.result = makeLocalTitle(input.messages);
+    }, { providerID: MUSE_PROVIDER_ID }));
+    localMetaRegistrations.push(await ctx.session.hook("compaction", async (input) => {
+      const summary = makeCompactionDigest(
+        input.messages,
+        typeof input.options.maxOutputTokens === "number" ? input.options.maxOutputTokens : undefined,
+      );
+      await sessions.recordCompactionCandidate(input.sessionID, fingerprintCompactionOutput(summary));
+      input.result = { summary };
+    }, { providerID: MUSE_PROVIDER_ID }));
   } catch (error) {
     await sessions.close();
     await registration.dispose();
     // The session hook may have been registered before the language hook failed.
     await sessionHookRegistration?.dispose();
+    await Promise.all(localMetaRegistrations.map((hook) => hook.dispose()));
     throw error;
   }
 
@@ -117,6 +133,7 @@ export async function createProviderPlugin(
         registration.dispose(),
         sessionHookRegistration?.dispose(),
         languageHookRegistration?.dispose(),
+        ...localMetaRegistrations.map((hook) => hook.dispose()),
         sessions.close(),
       ]);
     },

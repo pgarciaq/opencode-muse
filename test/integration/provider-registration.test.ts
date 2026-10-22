@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createProviderPlugin } from "../../src/provider.js";
 import { createMuse } from "../../src/index.js";
 import type { MuseCatalogSnapshot } from "../../src/catalog.js";
+import { fingerprintCompactionOutput } from "../../src/session/fingerprint.js";
 
 function liveCatalog(): MuseCatalogSnapshot {
   return {
@@ -143,6 +144,54 @@ describe("Muse OpenCode provider registration", () => {
     expect(input.language).toMatchObject({ provider: "muse", modelId: "muse-wonder-1.0" });
     expect(typeof input.language?.doGenerate).toBe("function");
     await runtime.dispose();
+  });
+
+  test("provider.handlesTitleAndCompactionLocallyAndPersistsOnlyTheSummaryHash", async () => {
+    const fake = fakeContext();
+    const candidates: Array<{ sessionID: string; fingerprint: string }> = [];
+    let fakeManagerClosed = false;
+    const runtime = await createProviderPlugin(fake.context as never, "file:///plugin/dist/index.js", {
+      fetchCatalog: async () => liveCatalog(),
+      createSessionManager: () => ({
+        async resolveSession() { throw new Error("local meta request must not resolve Muse session"); },
+        async recordCompactionCandidate(sessionID: string, fingerprint: string) { candidates.push({ sessionID, fingerprint }); },
+        async close() { fakeManagerClosed = true; },
+      } as never),
+    });
+    await runtime.refreshTask;
+    const title = fake.sessionHooks.find((candidate) => candidate.name === "title");
+    const compaction = fake.sessionHooks.find((candidate) => candidate.name === "compaction");
+    expect(title).toBeDefined();
+    expect(compaction).toBeDefined();
+
+    const titleInput: Record<string, any> = {
+      sessionID: "ses_local_meta",
+      model: { providerID: "muse", id: "muse-model" },
+      system: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "Fix the broken login." }] }],
+      options: {},
+    };
+    await title?.callback(titleInput);
+    expect(titleInput.result).toBe("Fix the broken login.");
+
+    const compactInput: Record<string, any> = {
+      sessionID: "ses_local_meta",
+      model: { providerID: "muse", id: "muse-model" },
+      system: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Initial request" }] },
+        { role: "assistant", content: [{ type: "text", text: "Completed answer" }] },
+      ],
+      options: { maxOutputTokens: 300 },
+    };
+    await compaction?.callback(compactInput);
+    expect(compactInput.result.summary).toContain("Initial request");
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({ sessionID: "ses_local_meta" });
+    expect(candidates[0]?.fingerprint).toBe(fingerprintCompactionOutput(compactInput.result.summary));
+    expect(candidates[0]?.fingerprint).not.toContain(compactInput.result.summary);
+    await runtime.dispose();
+    expect(fakeManagerClosed).toBe(true);
   });
 
   test("provider.createMuseProvidesANamedLanguageHookDriftDiagnostic", () => {

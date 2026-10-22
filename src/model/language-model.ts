@@ -6,7 +6,9 @@ import type {
 import { createHash } from "node:crypto";
 import { MspCommandRejectedError, MuseBridgeError, MuseUnsupportedInputError, MuseUnsupportedRequestError, MspProtocolError, MspTransportError } from "../errors.js";
 import type { MspNotification } from "../msp/client.js";
-import { readRequestContext } from "./context.js";
+import { MUSE_CONTEXT_HEADERS, readRequestContext } from "./context.js";
+import { classifyMetaRequest, makeCompactionDigest, makeLocalTitle, type MetaRequestClass } from "./meta.js";
+import { promptContainsCompactionFingerprint } from "../session/fingerprint.js";
 import {
   extractTurnInput,
   validateModelOptions,
@@ -30,6 +32,7 @@ export interface MuseTurnSession {
   host: MuseTurnHost;
   sessionId: string;
   previousTranscriptFingerprints: readonly string[];
+  compactionFingerprints?: readonly string[];
   commitTranscriptFingerprints?(fingerprints: readonly string[]): Promise<void>;
   contextAllowlist: readonly ContextFragment[];
   replayAfterCursor?: string;
@@ -83,7 +86,14 @@ async function submitCommand(
   await session.recordPendingCommand?.({ commandId, method, fingerprint: requestFingerprint });
   try {
     const result = await session.host.command(method, requestParams);
-    await session.clearPendingCommand?.(commandId);
+    try {
+      await session.clearPendingCommand?.(commandId);
+    } catch {
+      // The command ACK proves its outcome. Keep the conservative pending
+      // fingerprint; the manager clears acknowledged transaction commands at
+      // terminal completion. Never discard a successful model turn because a
+      // registry cleanup write failed after the remote side effect.
+    }
     return result as Record<string, unknown>;
   } catch (error) {
     // A typed command rejection is an explicit refusal. Timeouts and transport
@@ -288,7 +298,9 @@ export async function runMuseTurn(
       subscriptionController?.abort();
       await firstNotification?.catch(() => undefined);
       await subscription?.return?.();
-      await session.release?.();
+      const commandMethod = (error as { method?: unknown } | null)?.method;
+      const ambiguousTurnStart = commandMethod === "turn/start" && !(error instanceof MspCommandRejectedError);
+      if (!ambiguousTurnStart) await session.release?.();
     }
     throw error;
   }
@@ -319,8 +331,56 @@ function resultUsage(usage: FlatMuseUsage | undefined): Record<string, unknown> 
   };
 }
 
+function requestKindFromHeaders(options: LanguageModelV3CallOptions): string | undefined {
+  const headers = options.headers;
+  if (!headers) return undefined;
+  const name = MUSE_CONTEXT_HEADERS.kind.toLowerCase();
+  for (const [key, value] of Object.entries(headers)) if (key.toLowerCase() === name) return value;
+  return undefined;
+}
+
+function classifyCall(options: LanguageModelV3CallOptions): MetaRequestClass {
+  return classifyMetaRequest(requestKindFromHeaders(options), options.prompt);
+}
+
+function localMetaText(kind: "title" | "compaction", options: LanguageModelV3CallOptions): string {
+  return kind === "title"
+    ? makeLocalTitle(options.prompt)
+    : makeCompactionDigest(options.prompt, options.maxOutputTokens);
+}
+
+function localMetaGenerateResult(kind: "title" | "compaction", text: string): Awaited<ReturnType<LanguageModelV3["doGenerate"]>> {
+  return {
+    content: text ? [{ type: "text", text }] : [],
+    finishReason: { unified: "stop", raw: `local-${kind}` },
+    usage: resultUsage(undefined),
+    warnings: [],
+  } as unknown as Awaited<ReturnType<LanguageModelV3["doGenerate"]>>;
+}
+
+function localMetaStream(kind: "title" | "compaction", text: string): ReadableStream<LanguageModelV3StreamPart> {
+  return new ReadableStream<LanguageModelV3StreamPart>({
+    start(controller) {
+      controller.enqueue({ type: "stream-start", warnings: [] } as unknown as LanguageModelV3StreamPart);
+      if (text) {
+        controller.enqueue({ type: "text-start", id: `local-${kind}` } as unknown as LanguageModelV3StreamPart);
+        controller.enqueue({ type: "text-delta", id: `local-${kind}`, delta: text } as unknown as LanguageModelV3StreamPart);
+        controller.enqueue({ type: "text-end", id: `local-${kind}` } as unknown as LanguageModelV3StreamPart);
+      }
+      controller.enqueue({
+        type: "finish",
+        finishReason: { unified: "stop", raw: `local-${kind}` },
+        usage: resultUsage(undefined),
+      } as unknown as LanguageModelV3StreamPart);
+      controller.close();
+    },
+  });
+}
+
 export function createMuseLanguageModel(runtime: MuseLanguageRuntime, modelID: string): LanguageModelV3 {
   const doPrepare = async (options: LanguageModelV3CallOptions) => {
+    const requestKind = classifyCall(options);
+    if (requestKind !== "agent") throw new MuseUnsupportedRequestError(requestKind);
     const context = readRequestContext(options, runtime.selectionIndex);
     if ("type" in context) throw contextErrorToException(context);
     if (context.kind !== "primary") throw new MuseUnsupportedRequestError(context.kind);
@@ -329,9 +389,12 @@ export function createMuseLanguageModel(runtime: MuseLanguageRuntime, modelID: s
     const initialExtraction = extractTurnInput(options.prompt, [], [], { signal: options.abortSignal });
     if (!initialExtraction.ok) throw inputErrorToException(initialExtraction.error);
     const session = await runtime.resolveSession(context);
+    const observedCompaction = (session.compactionFingerprints ?? []).some((candidate) =>
+      promptContainsCompactionFingerprint(options.prompt, candidate),
+    );
     const extracted = extractTurnInput(
       options.prompt,
-      session.previousTranscriptFingerprints,
+      observedCompaction ? [] : session.previousTranscriptFingerprints,
       session.contextAllowlist,
       { signal: options.abortSignal },
     );
@@ -355,6 +418,11 @@ export function createMuseLanguageModel(runtime: MuseLanguageRuntime, modelID: s
     modelId: modelID,
     supportedUrls: {},
     async doStream(options: LanguageModelV3CallOptions) {
+      const requestKind = classifyCall(options);
+      if (requestKind === "title" || requestKind === "compaction") {
+        return { stream: localMetaStream(requestKind, localMetaText(requestKind, options)) };
+      }
+      if (requestKind === "unsupported-generate") throw new MuseUnsupportedRequestError("generate");
       const prepared = await doPrepare(options);
       let outputClosed = false;
       let controllerRef: ReadableStreamDefaultController<LanguageModelV3StreamPart> | undefined;
@@ -403,6 +471,11 @@ export function createMuseLanguageModel(runtime: MuseLanguageRuntime, modelID: s
       return { stream };
     },
     async doGenerate(options: LanguageModelV3CallOptions) {
+      const requestKind = classifyCall(options);
+      if (requestKind === "title" || requestKind === "compaction") {
+        return localMetaGenerateResult(requestKind, localMetaText(requestKind, options));
+      }
+      if (requestKind === "unsupported-generate") throw new MuseUnsupportedRequestError("generate");
       const prepared = await doPrepare(options);
       let terminalError: Error | undefined;
       const iterator = prepared.execution.events[Symbol.asyncIterator]();

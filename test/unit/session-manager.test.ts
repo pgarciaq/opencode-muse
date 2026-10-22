@@ -42,13 +42,14 @@ function context(sessionID: string, directory: string): RequestContext {
   };
 }
 
-function managerAt(root: string, failSetModel = false, resumeActiveTurn = false) {
+function managerAt(root: string, failSetModel = false, resumeActiveTurn = false, registryOverride?: SessionRegistry) {
   let id = 0;
   const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
   const hosts: Array<{ closeCount: number }> = [];
+  const registry = registryOverride ?? new SessionRegistry({ stateDirectory: root });
   const manager = new MuseSessionManager({
     stateDirectory: root,
-    registry: new SessionRegistry({ stateDirectory: root }),
+    registry,
     workspaceLock: new WorkspaceLock({ stateDirectory: root }),
     async createHost(options) {
       const record = { closeCount: 0 };
@@ -225,6 +226,58 @@ describe("MuseSessionManager", () => {
     await expect(manager.resolveSession(context("ses_oc_1", directory))).rejects.toBeInstanceOf(MuseRecoveryChoiceRequiredError);
     expect(calls.filter((call) => call.method === "session/start")).toHaveLength(1);
     expect(calls.filter((call) => call.method === "session/setModel")).toHaveLength(1);
+    await manager.close();
+  });
+
+  test("sessionManager.persistsOnlyTheCompactionCandidateHash", async () => {
+    const root = tempRoot();
+    const directory = join(root, "project");
+    mkdirSync(directory);
+    const { manager } = managerAt(root);
+    const binding = await manager.resolveSession(context("ses_oc_1", directory));
+    const candidate = "9".repeat(64);
+
+    await expect(manager.recordCompactionCandidate("ses_oc_1", candidate)).rejects.toBeInstanceOf(WorkspaceBusyError);
+    await binding.release?.();
+    await manager.recordCompactionCandidate("ses_oc_1", candidate);
+    const entry = await new SessionRegistry({ stateDirectory: root }).get("ses_oc_1", workspaceFingerprint(directory));
+    expect(entry?.compactionFingerprints).toEqual([candidate]);
+    expect(JSON.stringify(entry)).not.toContain("summary body");
+    await binding.commitTranscriptFingerprints?.(["a".repeat(64)]);
+    const committed = await new SessionRegistry({ stateDirectory: root }).get("ses_oc_1", workspaceFingerprint(directory));
+    expect(committed?.compactionFingerprints).toEqual([]);
+    expect(committed?.transcriptFingerprints).toEqual(["a".repeat(64)]);
+    await manager.close();
+  });
+
+  test("sessionManager.clearsAcknowledgedCommandFingerprintsAtTerminalAfterCleanupWriteFailure", async () => {
+    const root = tempRoot();
+    const directory = join(root, "project");
+    mkdirSync(directory);
+    const registry = new SessionRegistry({ stateDirectory: root });
+    const clear = registry.clearPendingCommand.bind(registry);
+    let failNextClear = true;
+    registry.clearPendingCommand = async (...args: Parameters<SessionRegistry["clearPendingCommand"]>) => {
+      if (failNextClear) {
+        failNextClear = false;
+        throw new Error("temporary state write failure");
+      }
+      return clear(...args);
+    };
+    const { manager } = managerAt(root, false, false, registry);
+    const ctx = context("ses_oc_1", directory);
+    ctx.museSelection = { ...ctx.museSelection, profileId: null };
+    const binding = await manager.resolveSession(ctx);
+    const commandId = "018f4f17-9c2a-7c1a-a0fd-67a19db5d1f9";
+    await binding.recordPendingCommand?.({ commandId, method: "turn/start", fingerprint: "c".repeat(64) });
+    await expect(binding.clearPendingCommand?.(commandId)).rejects.toThrow("temporary state write failure");
+    await binding.recordTurnAccepted?.(commandId, "turn_running");
+    await binding.recordTurnCompleted?.("turn_running", "completed");
+
+    const entry = await registry.get("ses_oc_1", workspaceFingerprint(directory));
+    expect(entry?.pendingCommands).toEqual({});
+    expect(entry?.activeTurnId).toBeUndefined();
+    await binding.release?.();
     await manager.close();
   });
 

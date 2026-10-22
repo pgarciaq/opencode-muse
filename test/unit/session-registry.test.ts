@@ -82,6 +82,18 @@ describe("SessionRegistry", () => {
     expect(loaded?.pendingCommands).toEqual({});
   });
 
+  test("sessionRegistry.persistsOnlyThePendingCompactionOutputFingerprint", async () => {
+    const root = makeRoot();
+    const registry = new SessionRegistry({ stateDirectory: root });
+    await registry.put(entry());
+    const candidate = "6".repeat(64);
+
+    await registry.recordCompactionCandidate("ses_opencode_1", candidate);
+    expect(await registry.get("ses_opencode_1", workspaceA)).toMatchObject({ compactionFingerprints: [candidate] });
+    await registry.clearCompactionCandidate("ses_opencode_1", candidate);
+    expect(await registry.get("ses_opencode_1", workspaceA)).toMatchObject({ compactionFingerprints: [] });
+  });
+
   test("sessionRegistry.rejectsPromptOrUnknownFieldsBeforePersistence", async () => {
     const root = makeRoot();
     const registry = new SessionRegistry({ stateDirectory: root });

@@ -6,6 +6,7 @@ import {
   validateModelOptions,
   type ContextFragment,
 } from "../../src/model/prompt.js";
+import { fingerprintTranscript } from "../../src/session/fingerprint.js";
 
 const userText = (text: string) => ({ role: "user", content: [{ type: "text", text }] }) as const;
 const assistantText = (text: string) => ({ role: "assistant", content: [{ type: "text", text }] }) as const;
@@ -164,5 +165,10 @@ describe("Muse prompt extraction", () => {
       ],
     }] as unknown as LanguageModelV3Prompt;
     expect(fingerprintVisibleTranscript(first)).toEqual(fingerprintVisibleTranscript(second));
+  });
+
+  test("prompt.andSessionRegistryShareOneVisibleTranscriptFingerprintAlgorithm", () => {
+    const prompt = [userText("same line\r\nnext line"), assistantText("answer")] as unknown as LanguageModelV3Prompt;
+    expect(fingerprintVisibleTranscript(prompt)).toEqual(fingerprintTranscript(prompt));
   });
 });
