@@ -13,19 +13,32 @@ credential-extraction approach under review in that repo's
 
 ## Status
 
-The approved v1.3 design is now recorded as working v1.4 with pinned-runtime
-findings. The provider bridge, fake-MSP tests, durable session mapping, and
-local title/compaction paths are implemented. The pinned OpenCode 2.1.2 CLI
-smoke remains blocked because its provider-list command hangs even in an empty
-project; see the [v1 tracking issue](https://github.com/pgarciaq/opencode-muse/issues/2).
+The approved v1.3 design is implemented (tests: fake-MSP suite green; install
+gates below). The provider bridge, durable session mapping, and local
+title/compaction paths are implemented and the OpenCode 2.1.3 runtime gates
+now pass: provider listing (`PROVIDER_LIST_OK`, three `muse/` rows), the
+request-correlation probe (`CORRELATION_OK`), and a live subscription-backed
+bridge turn through `muse serve`. Earlier OpenCode 2.1.2 CLI hangs in empty
+projects did not reproduce on 2.1.3; see the
+[v1 tracking issue](https://github.com/pgarciaq/opencode-muse/issues/2).
 Rewind/fork is deliberately unsupported until Muse fixes the Linux birth-time
 failure (tracked in [#20](https://github.com/pgarciaq/opencode-muse/issues/20)).
 
-This package is not yet published. Once published, install it with:
+This package is not yet published. Until then, load it through an OpenCode
+plugin directory (verified on OpenCode 2.1.3):
 
 ```sh
-opencode plugin add opencode-muse
+mkdir -p .opencode/plugins
+cat > .opencode/plugins/opencode-muse.js <<'EOF'
+export { default } from "file:///path/to/opencode-muse/dist/index.js";
+EOF
 ```
+
+For all projects, put the same shim file in `~/.config/opencode/plugins/`
+instead. Note that OpenCode 2.1.3 did not load plugin entries from the
+`plugin`/`plugins` config arrays (npm specifier or `file:`) in the tested CLI
+paths, so `opencode plugin add` is not yet expected to work for local
+plugins. After publication this section will be updated.
 
 ## Authentication
 

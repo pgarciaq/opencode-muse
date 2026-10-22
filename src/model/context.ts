@@ -86,7 +86,12 @@ export function readRequestContext(
   if (!museSelection) return contextError("unknown-model", "modelID");
   const rawVariant = readHeader(headers, MUSE_CONTEXT_HEADERS.variant);
   const variant = rawVariant || undefined;
-  if (variant && (!museSelection.variantsKnown || !museSelection.variants.includes(variant))) {
+  // OpenCode's default agent sends the synthetic "default" variant when the user
+  // did not choose one; resolve it to the catalog row's default reasoning effort.
+  const resolvedVariant = variant === "default"
+    ? (museSelection.defaultReasoningEffort ?? undefined)
+    : variant;
+  if (resolvedVariant && (!museSelection.variantsKnown || !museSelection.variants.includes(resolvedVariant))) {
     return contextError("unsupported-variant", "variant");
   }
 
@@ -96,7 +101,7 @@ export function readRequestContext(
     kind: kind as MuseRequestKind,
     modelID,
     providerID,
-    ...(variant ? { variant, effort: variant } : {}),
+    ...(resolvedVariant ? { variant: resolvedVariant, effort: resolvedVariant } : {}),
     museSelection,
   };
 }

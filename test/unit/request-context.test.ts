@@ -77,6 +77,49 @@ describe("request context", () => {
     expect(readRequestContext({ headers: variantHeaders }, index)).toMatchObject({ code: "unsupported-variant" });
   });
 
+  test("context.resolvesOpenCodeDefaultVariantToModelDefaultEffort", () => {
+    const headers = {
+      [MUSE_CONTEXT_HEADERS.sessionID]: "ses_default",
+      [MUSE_CONTEXT_HEADERS.directory]: "/workspace",
+      [MUSE_CONTEXT_HEADERS.kind]: "primary",
+      [MUSE_CONTEXT_HEADERS.modelID]: modelId,
+      [MUSE_CONTEXT_HEADERS.providerID]: "muse",
+      [MUSE_CONTEXT_HEADERS.variant]: "default",
+    };
+
+    const context = readRequestContext({ headers }, index);
+    expect(context).not.toMatchObject({ type: "context-error" });
+    expect(context).toMatchObject({
+      kind: "primary",
+      variant: "high",
+      effort: "high",
+      museSelection: { modelId: "muse-wonder-1.0" },
+    });
+  });
+
+  test("context.treatsDefaultVariantWithoutADeclaredDefaultAsUnspecifiedEffort", () => {
+    // Ruling: OpenCode's "default" marker means the user chose no variant; when
+    // the Muse row declares no defaultReasoningEffort, the turn runs on Muse's
+    // own default effort instead of failing the OpenCode request loop.
+    const noDefault: MuseModelSelection = { ...selection };
+    delete (noDefault as { defaultReasoningEffort?: string }).defaultReasoningEffort;
+    const centeredIndex = new Map([[modelId, noDefault]]);
+    const headers = {
+      [MUSE_CONTEXT_HEADERS.sessionID]: "ses_default",
+      [MUSE_CONTEXT_HEADERS.directory]: "/workspace",
+      [MUSE_CONTEXT_HEADERS.kind]: "primary",
+      [MUSE_CONTEXT_HEADERS.modelID]: modelId,
+      [MUSE_CONTEXT_HEADERS.providerID]: "muse",
+      [MUSE_CONTEXT_HEADERS.variant]: "default",
+    };
+
+    const context = readRequestContext({ headers }, centeredIndex);
+    expect(context).not.toMatchObject({ type: "context-error" });
+    expect(context).toMatchObject({ kind: "primary" });
+    expect((context as { variant?: string }).variant).toBeUndefined();
+    expect((context as { effort?: string }).effort).toBeUndefined();
+  });
+
   test("context.acceptsMetaRequestKindsAndIsolatesConcurrentSessions", () => {
     const makeHeaders = (sessionID: string, kind: string) => ({
       [MUSE_CONTEXT_HEADERS.sessionID]: sessionID,
