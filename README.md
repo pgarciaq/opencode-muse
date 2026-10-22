@@ -18,8 +18,11 @@ gates below). The provider bridge, durable session mapping, and local
 title/compaction paths are implemented and the OpenCode 2.1.3 runtime gates
 now pass: provider listing (`PROVIDER_LIST_OK`, three `muse/` rows), the
 request-correlation probe (`CORRELATION_OK`), and a live subscription-backed
-bridge turn through `muse serve`. Earlier OpenCode 2.1.2 CLI hangs in empty
-projects did not reproduce on 2.1.3; see the
+bridge turn through `muse serve`. The same provider-list, correlation, and live
+no-variant turn probes also pass with OpenChamber's embedded OpenCode 2.0.32
+binary (direct embedded-CLI verification; full OpenChamber UI acceptance is
+still pending). Earlier OpenCode 2.1.2 CLI hangs in empty projects did not
+reproduce on 2.1.3; see the
 [v1 tracking issue](https://github.com/pgarciaq/opencode-muse/issues/2).
 Rewind/fork is deliberately unsupported until Muse fixes the Linux birth-time
 failure (tracked in [#20](https://github.com/pgarciaq/opencode-muse/issues/20)).
