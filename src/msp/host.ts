@@ -1,0 +1,228 @@
+import {
+  MspError,
+  EXPECTED_SCHEMA_FINGERPRINT,
+  MuseHostStartError as SdkHostStartError,
+  spawnMspConnection,
+  type MspHandshake,
+  type SpawnMspConnectionOptions,
+} from "@muse-code/sdk";
+import {
+  MspCommandTimeoutError,
+  MspHostClosedError,
+  MspHostStartError,
+  MspInitializeRejectedError,
+  MspSchemaMismatchError,
+  MspStartupTimeoutError,
+  MspTransportError,
+} from "../errors.js";
+import { MspClient, type MspConnectionLike, type MspNotification } from "./client.js";
+
+export interface MspHostRuntime {
+  connection: MspConnectionLike;
+  initializeResult: Record<string, unknown>;
+  close(): Promise<unknown>;
+  exited?: Promise<unknown>;
+}
+
+export interface MspHandshakeLike {
+  initialize(params: Parameters<MspHandshake["initialize"]>[0]): Promise<MspHostRuntime>;
+  close(): Promise<unknown>;
+}
+
+export interface MspHostOptions {
+  museBin?: string;
+  args?: readonly string[];
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+  startupTimeoutMs?: number;
+  commandTimeoutMs?: number;
+  requestTimeoutMs?: number;
+  shutdownTimeoutMs?: number;
+  clientInfo?: { name: string; version: string };
+}
+
+export interface MspHostDependencies {
+  createHandshake?: (options: SpawnMspConnectionOptions) => MspHandshakeLike;
+}
+
+export interface MspHostExit {
+  kind: string;
+  exitCode?: number | null;
+  exitSignal?: string | null;
+  retry?: string;
+}
+
+function defaultHandshake(options: SpawnMspConnectionOptions): MspHandshakeLike {
+  const handshake = spawnMspConnection(options);
+  return {
+    async initialize(params) {
+      const spawned = await handshake.initialize(params);
+      return {
+        connection: spawned.connection,
+        initializeResult: { ...spawned.initializeResult },
+        exited: spawned.child.exit,
+        close: async () => spawned.close(),
+      };
+    },
+    close: async () => handshake.close(),
+  };
+}
+
+function sanitizeExit(value: unknown): MspHostExit {
+  if (typeof value !== "object" || value === null) return { kind: "unknown" };
+  const record = value as Record<string, unknown>;
+  const safe: MspHostExit = {
+    kind: typeof record.kind === "string" ? record.kind : "unknown",
+  };
+  if (typeof record.exitCode === "number" || record.exitCode === null) safe.exitCode = record.exitCode;
+  if (typeof record.exitSignal === "string" || record.exitSignal === null) safe.exitSignal = record.exitSignal;
+  if (typeof record.retry === "string") safe.retry = record.retry;
+  // Deliberately omit stderrTail, raw messages, and arbitrary child properties.
+  return safe;
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    promise,
+    new Promise<T>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new MspStartupTimeoutError(timeoutMs)), timeoutMs);
+    }),
+  ]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
+}
+
+async function closeQuietly(close: () => Promise<unknown>): Promise<void> {
+  try {
+    await close();
+  } catch {
+    // Shutdown diagnostics may contain arbitrary CLI stderr; do not log them.
+  }
+}
+
+/** Owns one muse serve child and one MSP connection for one OpenCode session. */
+export class MspHost {
+  readonly client: MspClient;
+  readonly initializeResult: Record<string, unknown>;
+  readonly exited: Promise<MspHostExit>;
+  private state: "open" | "closing" | "closed" = "open";
+  private closePromise: Promise<void> | undefined;
+
+  private constructor(
+    private readonly runtime: MspHostRuntime,
+    options: MspHostOptions,
+  ) {
+    this.initializeResult = runtime.initializeResult;
+    this.client = new MspClient(runtime.connection, {
+      commandTimeoutMs: options.commandTimeoutMs,
+      requestTimeoutMs: options.requestTimeoutMs,
+      closeConnection: false,
+      onFatal: () => {
+        queueMicrotask(() => { void this.close().catch(() => {}); });
+      },
+    });
+    this.exited = runtime.exited
+      ? runtime.exited.then(
+          (value) => {
+            this.state = "closed";
+            this.client.dispose();
+            return sanitizeExit(value);
+          },
+          () => {
+            this.state = "closed";
+            this.client.dispose();
+            return { kind: "unknown" };
+          },
+        )
+      : new Promise(() => {});
+  }
+
+  static async start(options: MspHostOptions = {}, dependencies: MspHostDependencies = {}): Promise<MspHost> {
+    const spawnOptions: SpawnMspConnectionOptions = {
+      command: options.museBin ?? "muse",
+      args: options.args,
+      cwd: options.cwd,
+      env: options.env,
+      // No stderr callback: the SDK's bounded diagnostic tail is never forwarded to plugin logs.
+      shutdownTimeoutMs: options.shutdownTimeoutMs ?? 30_000,
+    };
+    let handshake: MspHandshakeLike;
+    try {
+      handshake = (dependencies.createHandshake ?? defaultHandshake)(spawnOptions);
+    } catch {
+      throw new MspHostStartError("spawn-failed");
+    }
+
+    const initializeParams = {
+      clientInfo: options.clientInfo ?? { name: "opencode-muse", version: "0.1.0" },
+    };
+    const timeoutMs = options.startupTimeoutMs ?? 20_000;
+    const initializing = handshake.initialize(initializeParams);
+    try {
+      const runtime = await withTimeout(initializing, timeoutMs);
+      const schema = runtime.initializeResult.schema as { fingerprint?: unknown } | undefined;
+      const servedFingerprint = typeof schema?.fingerprint === "string" ? schema.fingerprint : "missing";
+      if (servedFingerprint !== EXPECTED_SCHEMA_FINGERPRINT) {
+        await closeQuietly(runtime.close.bind(runtime));
+        throw new MspSchemaMismatchError(EXPECTED_SCHEMA_FINGERPRINT, servedFingerprint);
+      }
+      return new MspHost(runtime, options);
+    } catch (error) {
+      if (error instanceof MspSchemaMismatchError) throw error;
+      if (error instanceof MspStartupTimeoutError) {
+        void initializing.then((runtime) => closeQuietly(runtime.close.bind(runtime))).catch(() => {});
+        await closeQuietly(handshake.close.bind(handshake));
+        throw error;
+      }
+      await closeQuietly(handshake.close.bind(handshake));
+      if (error instanceof MspError) throw new MspInitializeRejectedError(error.code, error.kind);
+      if (error instanceof SdkHostStartError) {
+        throw new MspHostStartError(error.failure.kind === "spawnFailed" ? "spawn-failed" : "host-exited");
+      }
+      throw new MspHostStartError("unknown");
+    }
+  }
+
+  get isClosed(): boolean {
+    return this.state !== "open";
+  }
+
+  command<TResult extends Record<string, unknown> = Record<string, unknown>>(
+    method: string,
+    paramsWithCommandId: Record<string, unknown> & { commandId: string },
+  ): Promise<TResult> {
+    if (this.state !== "open") return Promise.reject(new MspHostClosedError());
+    return this.client.command<TResult>(method, paramsWithCommandId).catch((error: unknown) => {
+      if (error instanceof MspCommandTimeoutError) void this.close().catch(() => {});
+      throw error;
+    });
+  }
+
+  request<TResult extends Record<string, unknown> = Record<string, unknown>>(
+    method: string,
+    params?: Record<string, unknown>,
+  ): Promise<TResult> {
+    if (this.state !== "open") return Promise.reject(new MspHostClosedError());
+    return this.client.request<TResult>(method, params);
+  }
+
+  subscribe(sessionId: string, after?: string, signal?: AbortSignal): AsyncIterable<MspNotification> {
+    if (this.state !== "open") throw new MspHostClosedError();
+    return this.client.subscribe(sessionId, after, signal);
+  }
+
+  close(): Promise<void> {
+    if (this.closePromise) return this.closePromise;
+    this.state = "closing";
+    this.client.dispose();
+    this.closePromise = this.runtime.close().then(
+      () => { this.state = "closed"; },
+      () => {
+        this.state = "closed";
+        throw new MspTransportError();
+      },
+    );
+    return this.closePromise;
+  }
+}

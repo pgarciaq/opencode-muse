@@ -150,11 +150,11 @@ Create focused modules; adjust names only to match actual pinned SDK exports, an
 
 **Interfaces:** `MspHost.start(options) -> Promise<MspHost>`; `MspHost.command(method, paramsWithCommandId) -> Promise<result>`; `MspHost.subscribe(sessionId, after?) -> AsyncIterable<MspNotification>`; `MspHost.close() -> Promise<void>`. The UUIDv7 `commandId` is part of the typed params, not a second independent argument. Adapt exact SDK signatures from Task 1 rather than inventing wire shapes.
 
-- [ ] Write fake-host tests for initialize, session start/resume/fork, view subscribe/replay, command IDs, notification ordering, child exit, malformed messages, and abort.
-- [ ] Run tests and verify failures expose the missing wrapper behavior, not SDK/network access.
-- [ ] Implement a stdio child lifecycle with bounded startup/command timeouts, stderr-only sanitized diagnostics, graceful close, and exit-code classification.
-- [ ] Implement one MSP connection per OpenCode session; validate incoming events against the pinned SDK schema and ignore unknown additive notifications safely.
-- [ ] Run `bun test test/unit/msp-client.test.ts test/unit/msp-host.test.ts` and `npm run build`.
+- [x] Write fake-host tests for initialize, session start/resume/fork, view subscribe/replay, command IDs, notification ordering, child exit, malformed messages, and abort.
+- [x] Run tests red: initially failed because `src/msp/client.ts` and `src/msp/host.ts` were absent; focused red cases also caught malformed-frame handling and close-error propagation, without SDK/network dependencies.
+- [x] Implement a stdio child lifecycle with bounded startup/command timeouts, no raw stderr forwarding, graceful close, sanitized exit classification, and fail-closed handling of ambiguous command timeouts.
+- [x] Implement one MSP connection per OpenCode session; require the exact pinned handshake fingerprint, use the SDK's JSON-RPC/frame validation, and pass unknown additive notification methods through for consumers to ignore safely.
+- [x] Run `bun test test/unit/msp-client.test.ts test/unit/msp-host.test.ts` and `npm run build`.
 
 ### Task 7: Implement durable session registry and workspace lock
 

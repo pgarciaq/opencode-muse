@@ -80,8 +80,8 @@ The compatibility probes in Tasks 1, 2, 4, and 5 of the implementation plan are 
 
 **Files:** `src/msp/client.ts`, `src/msp/host.ts`, `test/unit/msp-client.test.ts`, `test/unit/msp-host.test.ts`.
 
-- **Red:** Add `msp.startAndResumeAttachAtReturnedHead`, `msp.viewSubscribeReplaysAfterObservedCursor`, `msp.replaysGaplessEvents`, `msp.retriesSameCommandIdAndPayload`, and `host.closesChildOnShutdown`; assert auto-attach at start/resume, explicit replay from a cursor, exact command IDs/payloads, and event ordering.
-- **Green:** Implement the SDK wrapper and per-OpenCode-session stdio process with startup/command timeouts, sanitized stderr, cursor-aware subscriptions, and graceful close.
+- **Red:** Add `msp.startAndResumeAttachAtReturnedHead`, `msp.viewSubscribeReplaysAfterObservedCursor`, `msp.replaysGaplessEvents`, `msp.retriesSameCommandIdAndPayload`, `msp.rejectsSchemaFingerprintMismatch`, `msp.malformedFramesFailClosed`, `host.boundsStartupAndCommand`, and `host.closesChildOnShutdown`; assert exact command IDs, event order, no raw diagnostic leakage, and no retry after an ambiguous timeout.
+- **Green:** Implement the pinned SDK wrapper and per-OpenCode-session stdio process with bounded startup/command timeouts, exact schema fingerprint enforcement, SDK JSON-RPC/frame validation, cursor-aware subscriptions, sanitized diagnostics, and graceful close. Preserve unknown notification methods for feature consumers to safely ignore.
 - **Refactor:** Separate process lifecycle from typed MSP command methods; keep both covered through the fake transport.
 - **Verification:** `bun test test/unit/msp-client.test.ts test/unit/msp-host.test.ts`; no test reads Muse config or needs a live model.
 
