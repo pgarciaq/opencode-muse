@@ -153,6 +153,7 @@ describe("Muse OpenCode provider registration", () => {
     const runtime = await createProviderPlugin(fake.context as never, "file:///plugin/dist/index.js", {
       fetchCatalog: async () => liveCatalog(),
       createSessionManager: () => ({
+        setContextForSession() {},
         async resolveSession() { throw new Error("local meta request must not resolve Muse session"); },
         async recordCompactionCandidate(sessionID: string, fingerprint: string) { candidates.push({ sessionID, fingerprint }); },
         async close() { fakeManagerClosed = true; },
@@ -192,6 +193,45 @@ describe("Muse OpenCode provider registration", () => {
     expect(candidates[0]?.fingerprint).not.toContain(compactInput.result.summary);
     await runtime.dispose();
     expect(fakeManagerClosed).toBe(true);
+  });
+
+  test("providerCapturesOnlyAllowlistedAgentContextBeforeModelRequest", async () => {
+    const fake = fakeContext();
+    const observed: Array<{ sessionID: string; result: unknown }> = [];
+    const runtime = await createProviderPlugin(fake.context as never, "file:///plugin/dist/index.js", {
+      fetchCatalog: async () => liveCatalog(),
+      createSessionManager: () => ({
+        setContextForSession(sessionID: string, result: unknown) { observed.push({ sessionID, result }); },
+        async resolveSession() { throw new Error("the context hook alone must not start a turn"); },
+        async recordCompactionCandidate() {},
+        async close() {},
+      } as never),
+    });
+    await runtime.refreshTask;
+    const hook = fake.sessionHooks.find((candidate) => candidate.name === "context");
+    expect(hook?.options).toEqual({ providerID: "muse" });
+    hook?.callback({
+      sessionID: "ses_context_hook",
+      agent: "security-reviewer",
+      system: [
+        { type: "text", text: "Check for data leaks and cite exact files." },
+        { type: "text", text: "# Your Model\nprovider details" },
+        { type: "text", text: "# Code Mode\n## Available tools\n- shell" },
+      ],
+      messages: [],
+      options: {},
+      tools: {},
+      model: { id: "model", providerID: "muse" },
+    });
+
+    expect(observed).toEqual([{
+      sessionID: "ses_context_hook",
+      result: {
+        supported: true,
+        fragments: [{ label: "OpenCode agent instructions", text: "Check for data leaks and cite exact files." }],
+      },
+    }]);
+    await runtime.dispose();
   });
 
   test("provider.createMuseProvidesANamedLanguageHookDriftDiagnostic", () => {

@@ -54,6 +54,10 @@ setup placeholder rather than advertising a model that will fail on use.
   The bridge does not roll back workspace files.
 - The bridge serializes writers per local workspace and may report a busy
   session while another Muse turn is still completing in the background.
+- Identifiable custom OpenCode agent instructions are forwarded as a labeled
+  preamble; unknown custom-agent layouts fail closed. Other OpenCode system
+  boilerplate and tool catalogs are not sent to Muse; Muse uses its own
+  workspace rules.
 
 ## Credits and references
 

@@ -14,6 +14,7 @@ import {
 import type { PendingCommandRecord, SessionRegistry, SessionRegistryEntry } from "./registry.js";
 import type { LockLease, WorkspaceLock } from "./workspace-lock.js";
 import type { MuseTurnSession } from "../model/language-model.js";
+import type { AgentContextResult } from "../model/agent-context.js";
 
 export interface MuseSessionHost extends Pick<MspHost, "command" | "request" | "subscribe" | "mintCommandId" | "close"> {
   initializeResult: Record<string, unknown>;
@@ -78,6 +79,7 @@ function selectionMatches(
 
 export class MuseSessionManager {
   private readonly bindings = new Map<string, ManagedBinding>();
+  private readonly contextBySession = new Map<string, AgentContextResult>();
   private readonly createHost: NonNullable<MuseSessionManagerOptions["createHost"]>;
   private closed = false;
 
@@ -91,6 +93,18 @@ export class MuseSessionManager {
       commandTimeoutMs: 30_000,
       requestTimeoutMs: 20_000,
     }) as Promise<MuseSessionHost>);
+  }
+
+  setContextForSession(openCodeSessionId: string, context: AgentContextResult): void {
+    this.contextBySession.set(openCodeSessionId, {
+      supported: context.supported,
+      fragments: context.fragments.map((fragment) => ({ ...fragment })),
+    });
+    const binding = this.bindings.get(openCodeSessionId);
+    if (binding) {
+      binding.contextAllowlist = context.supported ? context.fragments.map((fragment) => ({ ...fragment })) : [];
+      binding.contextError = context.supported ? undefined : "agent-instructions-unrepresentable";
+    }
   }
 
   async resolveSession(context: RequestContext): Promise<MuseTurnSession> {
@@ -167,6 +181,7 @@ export class MuseSessionManager {
       const initialSelection = stored
         ? { providerId: stored.providerId ?? selected.providerId, modelId: stored.modelId ?? selected.modelId, profileId: stored.profileId ?? null }
         : { providerId: selected.providerId, modelId: selected.modelId, profileId: null };
+      const sessionContext = this.contextBySession.get(context.sessionID);
       const binding: ManagedBinding = {
         host,
         sessionId: museSessionId,
@@ -180,7 +195,8 @@ export class MuseSessionManager {
         transcriptFingerprints: stored?.transcriptFingerprints ?? [],
         compactionFingerprints: stored?.compactionFingerprints ?? [],
         pendingCommands: stored?.pendingCommands ?? {},
-        contextAllowlist: [],
+        contextAllowlist: sessionContext?.supported ? sessionContext.fragments.map((fragment) => ({ ...fragment })) : [],
+        contextError: sessionContext?.supported ? undefined : "agent-instructions-unrepresentable",
         lease,
         async recordPendingCommand(input) {
           binding.pendingCommands[input.commandId] = { method: input.method, fingerprint: input.fingerprint };
@@ -266,8 +282,14 @@ export class MuseSessionManager {
     const bindings = [...this.bindings.values()];
     this.bindings.clear();
     await Promise.all(bindings.map(async (binding) => {
-      await binding.release?.().catch(() => {});
-      await binding.host.close?.().catch(() => {});
+      try {
+        await binding.host.close?.();
+      } catch {
+        // The diagnostic may include CLI stderr; shutdown must still release
+        // the local lease once the owned process has been asked to stop.
+      } finally {
+        await binding.release?.().catch(() => {});
+      }
     }));
   }
 

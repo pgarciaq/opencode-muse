@@ -58,6 +58,7 @@ function fakeRuntime(options: {
   currentSelection?: Pick<MuseModelSelection, "providerId" | "modelId" | "profileId">;
   previousTranscriptFingerprints?: string[];
   compactionFingerprints?: string[];
+  contextError?: string;
 } = {}) {
   const commands: Array<{ method: string; params: Record<string, unknown> }> = [];
   const requests: Array<{ method: string; params?: Record<string, unknown> }> = [];
@@ -134,6 +135,7 @@ function fakeRuntime(options: {
     previousTranscriptFingerprints: options.previousTranscriptFingerprints ?? [],
     compactionFingerprints: options.compactionFingerprints ?? [],
     contextAllowlist: [],
+    contextError: options.contextError,
     async recordPendingCommand(command: { commandId: string; method: string }) {
       pendingCommandMethods.set(command.commandId, command.method);
       commandLifecycle.push(`pending:${command.method}`);
@@ -343,6 +345,15 @@ describe("Muse LanguageModelV3 bridge", () => {
     expect(error?.name).toBe("MuseTranscriptDivergedError");
     expect(error?.message).toMatch(/fresh Muse session/i);
     expect(fake.commands.some((command) => command.method === "turn/start")).toBe(false);
+  });
+
+  test("languageModel.failsClosedWhenCustomAgentInstructionsCannotBeRepresented", async () => {
+    const fake = fakeRuntime({ contextError: "agent-instructions-unrepresentable" });
+    const model = createMuseLanguageModel(fake.runtime, modelID);
+
+    await expect(model.doGenerate(callOptions())).rejects.toThrow(/agent-instructions-unrepresentable/);
+    expect(fake.commands.some((command) => command.method === "turn/start")).toBe(false);
+    expect(fake.released).toBe(1);
   });
 
   test("languageModel.pagesAndDeduplicatesTheMissingViewRange", async () => {

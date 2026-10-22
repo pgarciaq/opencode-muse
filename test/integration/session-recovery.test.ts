@@ -214,6 +214,7 @@ describe("Muse session crash recovery", () => {
       workspaceLock,
       async createHost() { hostCreations += 1; return host; },
     });
+    manager.setContextForSession("ses_oc_timeout", { supported: true, fragments: [] });
     const modelId = openCodeModelId("tbh", "wonder");
     const selection: MuseModelSelection = {
       providerId: "meta",

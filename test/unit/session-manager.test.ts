@@ -42,7 +42,14 @@ function context(sessionID: string, directory: string): RequestContext {
   };
 }
 
-function managerAt(root: string, failSetModel = false, resumeActiveTurn = false, registryOverride?: SessionRegistry) {
+function managerAt(
+  root: string,
+  failSetModel = false,
+  resumeActiveTurn = false,
+  registryOverride?: SessionRegistry,
+  workspaceLockOverride?: WorkspaceLock,
+  closeGate?: { started(): void; wait: Promise<void> },
+) {
   let id = 0;
   const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
   const hostOptions: Array<Record<string, unknown>> = [];
@@ -51,7 +58,7 @@ function managerAt(root: string, failSetModel = false, resumeActiveTurn = false,
   const manager = new MuseSessionManager({
     stateDirectory: root,
     registry,
-    workspaceLock: new WorkspaceLock({ stateDirectory: root }),
+    workspaceLock: workspaceLockOverride ?? new WorkspaceLock({ stateDirectory: root }),
     async createHost(options) {
       hostOptions.push(options as unknown as Record<string, unknown>);
       const record = { closeCount: 0 };
@@ -78,7 +85,11 @@ function managerAt(root: string, failSetModel = false, resumeActiveTurn = false,
         },
         async request() { return {}; },
         subscribe() { return { async *[Symbol.asyncIterator]() {} }; },
-        async close() { record.closeCount += 1; },
+        async close() {
+          record.closeCount += 1;
+          closeGate?.started();
+          await closeGate?.wait;
+        },
         options,
       } as never;
     },
@@ -253,6 +264,26 @@ describe("MuseSessionManager", () => {
     await manager.close();
   });
 
+  test("sessionManagerKeepsAllowlistedAgentInstructionsInMemoryOnly", async () => {
+    const root = tempRoot();
+    const directory = join(root, "project");
+    mkdirSync(directory);
+    const { manager } = managerAt(root);
+    manager.setContextForSession("ses_oc_1", {
+      supported: true,
+      fragments: [{ label: "OpenCode agent instructions", text: "Never print the private deployment token." }],
+    });
+    const binding = await manager.resolveSession(context("ses_oc_1", directory));
+
+    expect(binding.contextAllowlist).toEqual([
+      { label: "OpenCode agent instructions", text: "Never print the private deployment token." },
+    ]);
+    const saved = await new SessionRegistry({ stateDirectory: root }).get("ses_oc_1", workspaceFingerprint(directory));
+    expect(JSON.stringify(saved)).not.toContain("private deployment token");
+    await binding.release?.();
+    await manager.close();
+  });
+
   test("sessionManager.clearsAcknowledgedCommandFingerprintsAtTerminalAfterCleanupWriteFailure", async () => {
     const root = tempRoot();
     const directory = join(root, "project");
@@ -299,6 +330,32 @@ describe("MuseSessionManager", () => {
     expect((await registry.get("ses_oc_1", workspaceFingerprint(directory)))?.viewCursor).toBe("head-1");
     await binding.release?.();
     await manager.close();
+  });
+
+  test("sessionManager.keepsTheWorkspaceLockUntilHostShutdownCompletes", async () => {
+    const root = tempRoot();
+    const directory = join(root, "project");
+    mkdirSync(directory);
+    const lock = new WorkspaceLock({ stateDirectory: root });
+    let markHostClosing!: () => void;
+    let finishHostClose!: () => void;
+    const hostClosing = new Promise<void>((resolve) => { markHostClosing = resolve; });
+    const hostCloseGate = new Promise<void>((resolve) => { finishHostClose = resolve; });
+    const { manager } = managerAt(root, false, false, undefined, lock, {
+      started: markHostClosing,
+      wait: hostCloseGate,
+    });
+    const binding = await manager.resolveSession(context("ses_oc_1", directory));
+    const closing = manager.close();
+    await hostClosing;
+
+    await expect(lock.acquire(workspaceFingerprint(directory), "ses_other"))
+      .rejects.toBeInstanceOf(WorkspaceBusyError);
+    finishHostClose();
+    await closing;
+    const lease = await lock.acquire(workspaceFingerprint(directory), "ses_other");
+    await lease.release();
+    await binding.release?.();
   });
 
   test("sessionManager.rejectsWorkspaceChangeForAnExistingOpenCodeSession", async () => {

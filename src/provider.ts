@@ -13,6 +13,7 @@ import { WorkspaceLock } from "./session/workspace-lock.js";
 import { MuseBridgeError } from "./errors.js";
 import { makeCompactionDigest, makeLocalTitle } from "./model/meta.js";
 import { fingerprintCompactionOutput } from "./session/fingerprint.js";
+import { extractAllowedAgentContext } from "./model/agent-context.js";
 
 type ProviderEditor = Parameters<Parameters<Plugin.Context["provider"]["transform"]>[0]>[0];
 
@@ -80,6 +81,9 @@ export async function createProviderPlugin(
     sessionHookRegistration = await ctx.session.hook("model.request", async (request) => {
       addRequestContextHeaders(request.headers, request, ctx.location.directory);
     }, { providerID: MUSE_PROVIDER_ID });
+    localMetaRegistrations.push(await ctx.session.hook("context", async (input) => {
+      sessions.setContextForSession(input.sessionID, extractAllowedAgentContext(input.agent, input.system));
+    }, { providerID: MUSE_PROVIDER_ID }));
     languageHookRegistration = await ctx.aisdk.hook("language", async (input) => {
       if (input.model.providerID !== MUSE_PROVIDER_ID) return;
       const selection = catalog.selectionIndex.get(input.model.id);

@@ -190,13 +190,13 @@ Create focused modules; adjust names only to match actual pinned SDK exports, an
 ### Task 9: Implement request context, input validation, and selection routing
 
 **Files:**
-- Create: `src/model/context.ts`, `src/model/prompt.ts`
-- Create: `test/unit/request-context.test.ts`, `test/unit/prompt.test.ts`
+- Create: `src/model/context.ts`, `src/model/prompt.ts`, `src/model/agent-context.ts`
+- Create: `test/unit/request-context.test.ts`, `test/unit/prompt.test.ts`, `test/unit/agent-context.test.ts`
 
 **Interfaces:** `readRequestContext(callOptions, selectionIndex) -> RequestContext | ContextError`; `extractTurnInput(prompt, previousTranscriptFingerprints, contextAllowlist) -> ExtractTurnInputResult`; `validateModelOptions(options) -> ModelOptionsResult`. Transcript lineage is an ordered fingerprint array so same-length edits are detected without persisting prompt text.
 
 - [x] Test correlation header parsing, missing/invalid metadata, concurrent session isolation, and context-free `doGenerate` handling for stateless generation; no session-associated `doGenerate` path was observed in the pinned runtime.
-- [x] Test only new user content is sent; system/agent/project context follows the §6.4 allowlist; tool catalogs and volatile system boilerplate are excluded. Transcript divergence fails closed using ordered fingerprints.
+- [x] Test only new user content is sent; custom agent prompt context is isolated and labeled, while tool catalogs and volatile system boilerplate are excluded. Unknown custom-agent layouts fail closed; other host-only system context is an explicit v1 limitation. Transcript divergence fails closed using ordered fingerprints.
 - [x] Test image data maps to MSP image parts and video is extracted to uploadable bytes; Task 10 will chunk with UUIDv7 `commandId`s plus one shared `uploadId`. No direct audio/PDF/strict-JSON MSP path is represented; alternate official paths remain unverified, and errors name the direct-bridge limitation.
 - [x] Test ordinary user text requesting JSON remains normal text, strict `responseFormat=json` is rejected, non-empty tool definitions do not fail, and an explicitly required OpenCode tool is rejected. Unsupported sampling settings are reported by name only.
 - [x] Test remote media references are not fetched, size limits are checked, and preflight cancellation aborts before returning turn input.
@@ -209,7 +209,7 @@ Create focused modules; adjust names only to match actual pinned SDK exports, an
 - Create: `src/model/language-model.ts`, `src/model/stream.ts`
 - Create: `src/session/manager.ts`, `test/unit/session-manager.test.ts`
 - Create: `test/unit/language-model.test.ts`, `test/unit/stream-mapping.test.ts`, `test/integration/turn-bridge.test.ts`
-- Modify: `src/index.ts`, `src/provider.ts`
+- Modify: `src/index.ts`, `src/provider.ts`, `src/model/agent-context.ts`
 
 **Interfaces:** `createMuseLanguageModel(runtime) -> LanguageModelV3`; `runMuseTurn(context, input, options) -> Promise<MuseTurnExecution>`; `MuseSessionManager.resolveSession(context)` creates/reuses one host/session, binds provider/model/profile, persists the mapping, and returns cursor/turn/lock callbacks. `doStream` and `doGenerate` share the same Muse turn execution.
 

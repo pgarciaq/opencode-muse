@@ -39,6 +39,7 @@ export interface MuseTurnSession {
   compactionFingerprints?: readonly string[];
   commitTranscriptFingerprints?(fingerprints: readonly string[]): Promise<void>;
   contextAllowlist: readonly ContextFragment[];
+  contextError?: string;
   replayAfterCursor?: string;
   currentSelection?: Pick<MuseModelSelection, "providerId" | "modelId" | "profileId">;
   recordPendingCommand?(input: { commandId: string; method: string; fingerprint: string }): Promise<void>;
@@ -458,6 +459,10 @@ export function createMuseLanguageModel(runtime: MuseLanguageRuntime, modelID: s
     const initialExtraction = extractTurnInput(options.prompt, [], [], { signal: options.abortSignal });
     if (!initialExtraction.ok) throw inputErrorToException(initialExtraction.error);
     const session = await runtime.resolveSession(context);
+    if (session.contextError) {
+      await session.release?.();
+      throw new MuseUnsupportedRequestError(session.contextError);
+    }
     const observedCompaction = (session.compactionFingerprints ?? []).some((candidate) =>
       promptContainsCompactionFingerprint(options.prompt, candidate),
     );
