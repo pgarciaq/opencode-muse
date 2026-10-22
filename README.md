@@ -15,14 +15,13 @@ credential-extraction approach under review in that repo's
 
 The approved v1.3 design is implemented (tests: fake-MSP suite green; install
 gates below). The provider bridge, durable session mapping, and local
-title/compaction paths are implemented and the OpenCode 2.1.3 runtime gates
-now pass: provider listing (`PROVIDER_LIST_OK`, three `muse/` rows), the
-request-correlation probe (`CORRELATION_OK`), and a live subscription-backed
-bridge turn through `muse serve`. The same provider-list, correlation, and live
-no-variant turn probes also pass with OpenChamber's embedded OpenCode 2.0.32
-binary (direct embedded-CLI verification; full OpenChamber UI acceptance is
-still pending). Earlier OpenCode 2.1.2 CLI hangs in empty projects did not
-reproduce on 2.1.3; see the
+title/compaction paths are implemented. With Muse CLI and SDK 1.4.12, the
+sanitized catalog probe, provider listing, and a live no-variant text turn pass
+through OpenChamber's embedded OpenCode 2.0.32 binary when loaded by a
+project-local plugin shim. This is direct embedded-CLI verification; the
+already-running OpenChamber app's model picker still needs a fresh restart and
+verification. Earlier OpenCode 2.1.2 CLI hangs in empty projects did not
+reproduce on system OpenCode 2.1.3; see the
 [v1 tracking issue](https://github.com/pgarciaq/opencode-muse/issues/2).
 Rewind/fork is deliberately unsupported until Muse fixes the Linux birth-time
 failure (tracked in [#20](https://github.com/pgarciaq/opencode-muse/issues/20)).
@@ -37,11 +36,14 @@ export { default } from "file:///path/to/opencode-muse/dist/index.js";
 EOF
 ```
 
-For all projects, put the same shim file in `~/.config/opencode/plugins/`
-instead. Note that OpenCode 2.1.3 did not load plugin entries from the
-`plugin`/`plugins` config arrays (npm specifier or `file:`) in the tested CLI
-paths, so `opencode plugin add` is not yet expected to work for local
-plugins. After publication this section will be updated.
+The same shim can be placed in `~/.config/opencode/plugins/` for global
+discovery. With that shim and OpenChamber's embedded OpenCode 2.0.32, a fresh
+run from a Git project listed the three Muse models and completed a live
+no-variant turn without a project-local shim. An empty, unmarked temporary
+directory did not list providers; run OpenCode from a project. The already-
+running OpenChamber server still needs a full restart and model-picker check
+after the SDK update. After publication, installation instructions will be
+updated and re-verified.
 
 ## Authentication
 

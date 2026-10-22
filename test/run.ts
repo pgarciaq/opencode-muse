@@ -8,6 +8,7 @@ import "./unit/workspace-lock.test.ts";
 import "./unit/catalog.test.ts";
 import "./integration/provider-registration.test.ts";
 import "./unit/request-context.test.ts";
+import "./unit/agent-context.test.ts";
 import "./unit/prompt.test.ts";
 import "./unit/stream-mapping.test.ts";
 import "./unit/language-model.test.ts";

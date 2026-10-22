@@ -8,13 +8,13 @@ This file records runtime facts and probe results. It must never contain credent
 
 | Component | Observed/pinned candidate | Evidence / status |
 | --- | --- | --- |
-| Muse CLI | `1.4.11` (`1.4.11-R6667.1`) | `muse --version` |
+| Muse CLI | `1.4.12` (`1.4.12-R6909.1`) | `muse --version`; current stable schema fingerprint is recorded below |
 | OpenCode | `2.1.3` (current CLI; implementation target was `2.1.2`) | `opencode --version`; correlation probe `CORRELATION_OK` re-run on `2.1.3`; provider-list and live-turn bridge smoke pass on `2.1.3` |
 | OpenChamber embedded OpenCode | `2.0.32` | Embedded binary at `/tmp/.mount_OpenChoLGwRI/resources/opencode-cli/opencode`; project-local plugin shim passed provider listing, request correlation, and a live no-variant bridge turn. This is a direct embedded-CLI smoke, not a full OpenChamber UI acceptance test. |
 | OpenCode smoke baseline | `2.1.1` | Earlier `seam-smoke` evidence; retain as historical evidence, not the current target |
-| `@muse-code/sdk` | `1.4.11` | `npm view @muse-code/sdk version` returned `1.4.11`; package import/runtime compatibility is still to be tested in Task 3/6 |
+| `@muse-code/sdk` | `1.4.12` | `npm view @muse-code/sdk@1.4.12 version`; its expected fingerprint matches the Muse 1.4.12 served stable fingerprint |
 
-OpenCode `2.1.2` is the implementation target candidate because it is the installed runtime. The earlier `2.1.1` smoke test does not prove hook metadata reaches V3 call options on `2.1.2`; Task 2 remains a hard gate.
+The current OpenChamber test host embeds OpenCode `2.0.32`; system-wide OpenCode is `2.1.3`. The earlier `2.1.1` smoke test remains historical evidence only.
 
 ## MSP Schema Exports
 
@@ -27,18 +27,18 @@ muse schema generate-ts --out <directory>
 muse schema generate-ts --out <directory> --experimental
 ```
 
-Exports were generated from Muse CLI `1.4.11-R6667.1` under `/tmp/opencode/`.
+Current exports were generated offline from Muse CLI `1.4.12-R6909.1` under `/tmp/opencode/`. The 1.4.11 hashes are superseded for the current candidate; 1.4.11 runtime probes below remain historical observations.
 
 | Surface/artifact | SHA-256 / fingerprint |
 | --- | --- |
-| Stable manifest protocol fingerprint | `sha256:f282ad16e21520d0cda68cb190149b86e2b062eef1dd282749360c05aa3d1082` |
-| Stable `msp.schema.json` | `76e5807d78c0522cb4fe55be57520c284a6a03740ff3e817976667adfc45449b` |
-| Stable `msp.d.ts` | `65fc505c44031698e374c63021347e64de9b769442e97d50c9f2b5542b064b2e` |
-| Experimental manifest protocol fingerprint | `sha256:195aeec21350d8a9a6979eaaa16edb06c7b7017ebc4130e96966ea30ee435614` |
-| Experimental `msp.schema.json` | `130ce7bd353612b5644c8e46afa828cd6669ce8e4f7db5c1ba287a2f464ccc8e` |
-| Experimental `msp.d.ts` | `e76b5eb1bcdf352bfb2448aebe8ce506660c687a53f75cfe6e37d888803fbdbb` |
+| Stable manifest protocol fingerprint | `sha256:cfdb6d2525601b9bac76584ccb0610ab3a5539b5e4f51141f079b99b39fcb4e0` |
+| Stable `msp.schema.json` | `4ca7d1800ac66cae664529d59efeb1e17c63b3fedd0a53ddfc4b747758551737` |
+| Stable `msp.d.ts` | `4af85979529e7221193c45a4e758487d2955495cb9044cbc42eb93ce93c9b1ec` |
+| Experimental manifest protocol fingerprint | `sha256:c37d9b6db138c4f079e38da665815619a3a4337702568aacee62de7252690fc1` |
+| Experimental `msp.schema.json` | `f900a7e81fc194773cedb2d5be8805138aeb75bf76fcc03645084792935b2056` |
+| Experimental `msp.d.ts` | `1cd4fb62ec9dc2448dd27873715e85d34bfdb8335f301d63f7c73d3499a67ff9` |
 
-`diff -q` confirmed the exported stable declaration exactly matches `/tmp/opencode/muse-schema/msp.d.ts`; the exported experimental declaration exactly matches `/tmp/opencode/muse-schema-exp/msp.d.ts`.
+The SDK 1.4.12 `EXPECTED_SCHEMA_FINGERPRINT` exactly matches the stable fingerprint served by Muse CLI 1.4.12. The generated declaration diff from the 1.4.11 SDK is additive (new approval/CUA and background-terminal/checkpoint data and optional fields); the strict runtime fingerprint check remains enabled until a separate policy issue is resolved.
 
 ## Schema Facts Relevant to v1
 
@@ -59,7 +59,9 @@ These are schema observations, not all live behavioral probes. Keep the probe ou
 
 | Gate | Status | Result |
 | --- | --- | --- |
-| Muse/OpenCode/SDK version pin and schema export | **Recorded** | Versions and hashes above; schema declarations match vendored files exactly |
+| Muse/OpenCode/SDK version pin and schema export | **Updated for 1.4.12** | Muse CLI and `@muse-code/sdk` are both 1.4.12; SDK expected fingerprint matches the CLI-served stable fingerprint. |
+| Muse 1.4.12 handshake and `model/list` | **PASS** | Sanitized `test/probes/msp-catalog.ts` returned `MSP_CATALOG_PROBED`, stable fingerprint `sha256:cfdb6d2525601b9bac76584ccb0610ab3a5539b5e4f51141f079b99b39fcb4e0`, and three Meta models. Before the SDK update, the 1.4.12 CLI failed the exact handshake against the 1.4.11 SDK fingerprint; no guard was weakened. |
+| Muse 1.4.12 schema delta vs 1.4.11 | **Initial diff: additive declarations observed** | Exported stable declarations add approval/CUA and background-terminal/checkpoint data and optional fields; no removed exported declarations were found in the initial textual diff. The fingerprint remains exact-match because additive source shape alone does not prove semantic compatibility. Follow-up policy: #21. |
 | OpenCode `model.request` → V3 call-option correlation on OpenCode 2.1.2 | **PASS for session-associated `doStream`** | `bash test/probes/correlation-run.sh` passed on one shared `opencode serve` with two concurrent sessions. Seven calls (title, primary, session `generate`, and compaction) had matching hook/V3 signatures and no session crossover. Variant `minimal` survived. No direct profile field exists on the probed model object; resolve profile from the selected catalog model. |
 | OpenCode plugin file extension in project probe | **Observed** | The project plugin loader did not load the `.mjs` probe (model unavailable); renaming the same module to `.js` made it load and the correlation test pass. The shipped bundle entry is `.js`. |
 | OpenCode session-scoped `session.generate` route | **Observed** | Invoked `model.request` with kind `generate` and a session ID, used `doStream`, and left OpenCode session messages byte-identical. Do not forward it as an ordinary turn to the live Muse session in v1. |
@@ -79,14 +81,15 @@ These are schema observations, not all live behavioral probes. Keep the probe ou
 | OpenCode ordinary sampling settings | **Not represented by stable `turn/start`** | Prompt/options validation reports option names only and ignores `maxOutputTokens`, `temperature`, `topP`, `topK`, `presencePenalty`, `frequencyPenalty`, `stopSequences`, `seed`, and provider options. Strict JSON and required OpenCode-side tools are rejected specifically; a non-empty tool catalog alone is accepted. |
 | OpenChamber UI source feasibility (checkout `6491f51db`) | **Inspected; runtime unverified** | Provider auth UI surfaces OAuth/external/key but not plugin command methods; permission UI is generic allow-once/always/reject, not a lossless renderer for Muse choice IDs/labels; generic forms are not proven to cover all MSP user-input schemas. Defer auth button, Muse approvals, and structured user-input UI; use manual `muse login` and fail closed. File restore puts messages/attachments back in the composer; it is not workspace rollback. No OpenChamber source changes were made. |
 | Plugin behavior when Muse requests approval or structured user input | **Fail closed / no UI integration** | Plugin initialize advertises `userInputDialogs:false`; the pinned SDK's default server-request handling rejects unhandled requests as method-not-found. No approval choice, user-input answer, auto-allow, or transcript narration is synthesized. |
-| OpenChamber runtime catalog/fallback visibility | **Not run** | No browser tab/app was attached to this session. Static provider catalog remains the planned path, but live visibility is not yet verified. |
-| Pinned OpenCode `opencode models` / `provider.list` runtime smoke | **PASS on OpenCode 2.1.3** | `bash test/probes/provider-list-smoke.sh` (project-local shim) returned `PROVIDER_LIST_OK` with 3 `muse/` rows (`muse-spark-1.2`, `muse-spark-1.3`, `muse-wonder-1.0`; profile `tbh`). The earlier 2.1.2 empty-project CLI hang did not reproduce on `2.1.3`; plain `opencode models` also responds without any Muse plugin installed. The correlation probe also re-ran clean on `2.1.3` (`CORRELATION_OK`, 2 sessions, 7 `doStream` calls, no session crossover). |
-| OpenCode 2.1.3 end-to-end Muse bridge turn (subscription-backed, Contributor unchanged) | **PASS** | A project-local shim plus `opencode run --standalone --model muse/muse-profile-tbh-model-muse-spark-1.3` completed a real text turn through `muse serve` and returned the scripted token exactly once. Verified both with the explicit `#minimal` variant and after the default-variant fix below. No prompt text, media payloads, or generated prose is recorded here. |
-| OpenCode 2.1.3 default-variant behavior | **Observed; plugin fixed** | OpenCode's default `build` agent sends the synthetic variant `default` on primary requests (title/meta requests carry `minimal`) when the user chose no explicit variant. The plugin previously failed closed with `unsupported-variant`, which rejected every no-variant `opencode run`. `readRequestContext` now resolves `default` to the catalog row's `defaultReasoningEffort` when declared, and otherwise treats it as an unspecified-effort turn; arbitrary unknown variant names still fail closed. Unit tests pin both paths; live no-variant turn verified. |
-| OpenChamber embedded OpenCode 2.0.32 provider listing | **PASS** | Ran `test/probes/provider-list-smoke.sh` with `PATH` pointing to the embedded 2.0.32 binary; project-local `.opencode/plugins/*.js` shim returned `PROVIDER_LIST_OK` with 3 Muse rows. |
+| OpenChamber-managed provider after SDK 1.4.12 update | **Not verified after process restart** | The running OpenChamber 2.0.32 server listed the `muse` provider but returned zero source models after the dependency update. This server process was already running during the SDK replacement; restart OpenChamber and re-check before claiming the app-managed model picker is fixed. |
+| Pinned OpenCode 2.1.3 `opencode models` / `provider.list` runtime smoke | **Historical pass with Muse 1.4.11** | `bash test/probes/provider-list-smoke.sh` (project-local shim) returned `PROVIDER_LIST_OK` with 3 `muse/` rows (`muse-spark-1.2`, `muse-spark-1.3`, `muse-wonder-1.0`; profile `tbh`). The earlier 2.1.2 empty-project CLI hang did not reproduce on `2.1.3`; plain `opencode models` also responds without any Muse plugin installed. The correlation probe also re-ran clean on `2.1.3` (`CORRELATION_OK`, 2 sessions, 7 `doStream` calls, no session crossover). The 1.4.12 provider-list result is recorded against embedded 2.0.32 below. |
+| OpenCode 2.1.3 end-to-end Muse bridge turn (subscription-backed, Contributor unchanged) | **Historical pass with Muse 1.4.11** | A project-local shim plus `opencode run --standalone --model muse/muse-profile-tbh-model-muse-spark-1.3` completed a real text turn through `muse serve` and returned the scripted token exactly once. Verified both with the explicit `#minimal` variant and after the default-variant fix below. No prompt text, media payloads, or generated prose is recorded here. |
+| OpenCode 2.1.3 default-variant behavior | **Observed; plugin fixed** | OpenCode's default `build` agent sends the synthetic variant `default` on primary requests (title/meta requests carry `minimal`) when the user chose no explicit variant. The plugin previously failed closed with `unsupported-variant`, which rejected every no-variant `opencode run`. `readRequestContext` now resolves `default` to the catalog row's `defaultReasoningEffort` when declared, and otherwise treats it as an unspecified-effort turn; arbitrary unknown variant names still fail closed. Unit tests pin both paths; the live no-variant turn was verified on the prior Muse 1.4.11 pin. |
+| OpenChamber embedded OpenCode 2.0.32 provider listing with project-local shim | **PASS on Muse 1.4.12** | Ran `test/probes/provider-list-smoke.sh` with `PATH` pointing to the embedded 2.0.32 binary; project-local `.opencode/plugins/*.js` shim returned `PROVIDER_LIST_OK` with 3 Muse rows. |
 | OpenChamber embedded OpenCode 2.0.32 request correlation | **PASS** | Ran `test/probes/correlation-run.sh` through the embedded 2.0.32 binary; `CORRELATION_OK` (2 sessions, 7 `doStream` calls, no crossover). |
-| OpenChamber embedded OpenCode 2.0.32 live bridge turn | **PASS** | Project-local shim and a no-variant `opencode run --standalone --model muse/…-muse-spark-1.3` completed through `muse serve` and returned the scripted token. This verifies the embedded CLI/plugin seam but does not exercise OpenChamber's app-managed plugin discovery or UI. |
-| OpenCode 2.1.3 plugin loading surfaces | **Observed (pin 2.1.3)** | Project-local `.opencode/plugins/*.js` loads in `models`/`run` --standalone paths (provider rows plus live turns above). A shim placed in the global `~/.config/opencode/plugins/` directory also loads (`loading plugin` log) and serves session contexts; `opencode plugin list` reports directory plugins with source `local`. Config `plugin`/`plugins` array entries (npm specifier or `file:` URL installed into `~/.config/opencode/node_modules`) produced no load attempt in the tested `models --standalone`, `run --standalone`, and `plugin list` paths and the provider stayed unavailable; OpenCode's own `opencode plugin add` rejects non-npm/Git targets. Loading behavior beyond the tested paths (interactive server sessions, OpenChamber-bundled OpenCode) is unverified. |
+| OpenChamber embedded OpenCode 2.0.32 live bridge turn | **PASS on Muse 1.4.12** | Project-local shim and a no-variant `opencode run --standalone --model muse/…-muse-spark-1.3` completed through `muse serve` and returned the scripted token. This verifies the embedded CLI/plugin seam but does not exercise OpenChamber's app-managed plugin discovery or UI. |
+| OpenCode global plugin-directory model visibility | **PASS on embedded OpenCode 2.0.32** | The global shim, without a project-local shim, returned three Muse rows and completed a live no-variant turn when OpenCode ran from a temporary Git project. It also returned three rows from the plugin repository. An empty, unmarked temporary directory returned none; OpenCode's project/location context matters. |
+| OpenCode 2.1.3 plugin loading surfaces | **Observed (pin 2.1.3)** | Project-local `.opencode/plugins/*.js` loads in `models`/`run` --standalone paths (provider rows plus live turns above). A shim placed in the global `~/.config/opencode/plugins/` directory loads (`loading plugin` log), but model visibility from that surface is not established. Previous tests using the singular `plugin` config key do not establish behavior for the documented plural `plugins` key. |
 | Package contents | **PASS for dry-run inventory only** | `npm pack --dry-run --json` lists 36 files including compiled `dist/` modules (including the agent-context allowlist), package metadata, and README. No tarball was published or installed into a clean OpenCode profile; that runtime smoke remains blocked above. |
 
 ## Credential-Safety Record

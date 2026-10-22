@@ -46,7 +46,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@muse-code/sdk": "1.4.11"
+    "@muse-code/sdk": "1.4.12"
   },
   "devDependencies": {
     "@ai-sdk/provider": "3.0.8",
