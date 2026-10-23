@@ -24,7 +24,10 @@ jobs:
           ref: ${{ github.event.release.tag_name }}
           persist-credentials: false
 
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      # v7: no dummy NODE_AUTH_TOKEN fallback. setup-node v6 wrote a dummy
+      # token into the generated .npmrc when registry-url is set, which made
+      # npm skip the OIDC trusted-publishing path and fail with E404 on PUT.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: "24"
           registry-url: https://registry.npmjs.org

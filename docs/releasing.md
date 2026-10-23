@@ -48,6 +48,16 @@ accounts.
    tag, verifies the tag/package version match, installs dependencies, builds,
    runs tests, and checks the npm package contents. If that exact version is
    already on npm, it skips publishing; otherwise it publishes using OIDC.
+
+OIDC troubleshooting: the workflow must use `actions/setup-node` v7 or later.
+v6 wrote a dummy `NODE_AUTH_TOKEN` into the generated `.npmrc` when only
+`registry-url` was set, which made npm skip the OIDC path and return
+`E404 Not Found - PUT`. npm's exact `404 Not Found` message can also mean the
+npm Trusted Publisher entry does not match the workflow identity (owner,
+repository, workflow filename, environment). Confirm both before debugging
+further. For a release event GitHub executes the workflow file at the
+release tag's commit, so a workflow fix only takes effect from the next tag
+pointing at a commit that contains it.
 4. Verify the version on the npm package page after the workflow succeeds.
 
 Creating a GitHub Release before the first manual npm publish will not work:
