@@ -48,6 +48,26 @@ jobs:
           }
           NODE
 
+      - name: Check whether this version is already published
+        id: npm-version
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from "node:fs";
+
+          const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+          const url = `https://registry.npmjs.org/${encodeURIComponent(pkg.name)}/${encodeURIComponent(pkg.version)}`;
+          const response = await fetch(url);
+          if (response.status === 404) {
+            appendFileSync(process.env.GITHUB_OUTPUT, "published=false\n");
+            console.log(`${pkg.name}@${pkg.version} is not on npm yet.`);
+          } else if (response.ok) {
+            appendFileSync(process.env.GITHUB_OUTPUT, "published=true\n");
+            console.log(`${pkg.name}@${pkg.version} is already on npm; duplicate publish will be skipped.`);
+          } else {
+            throw new Error(`npm registry returned HTTP ${response.status}`);
+          }
+          NODE
+
       - name: Install dependencies
         run: npm ci
 
@@ -63,4 +83,5 @@ jobs:
       # npm exchanges GitHub's OIDC identity for a short-lived publish token.
       # No NPM_TOKEN or other long-lived npm credential is needed.
       - name: Publish package
+        if: steps.npm-version.outputs.published != 'true'
         run: npm publish
