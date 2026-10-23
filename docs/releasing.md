@@ -23,7 +23,7 @@ manually by the npm package owner. Subsequent releases can use the workflow.
    until the release is explicitly approved.
 3. On the npm package page, open **Settings → Trusted Publisher** and add:
    - Provider: **GitHub Actions**
-   - GitHub owner: `pgarciaq`
+   - GitHub owner: `pgquiles`
    - Repository: `opencode-muse`
    - Workflow filename: `publish-npm.yml`
    - Environment: leave blank
@@ -36,7 +36,7 @@ checks but detects that the manually published version already exists and
 skips the duplicate `npm publish` step.
 
 The npm username (`pgquiles`) owns the package; the Trusted Publisher uses the
-GitHub repository identity (`pgarciaq/opencode-muse`). They are separate
+GitHub repository identity (`pgquiles/opencode-muse`). They are separate
 accounts.
 
 ## Publishing later versions

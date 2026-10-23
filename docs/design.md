@@ -1,7 +1,7 @@
 # opencode-muse — Design
 
 **Status:** working v1.4 · 2026-10-22 (v1.3 approved baseline; compatibility findings incorporated; user approved continuing without rewind/fork, deferred to #20)
-**Decision basis:** spike issue [#1](https://github.com/pgarciaq/opencode-muse/issues/1) (probe record: Q1 verdict, close-out, smoke-test comment). Companion context: TheStreamCode/opencode-muse-auth#12 (compliance concern that motivates this design).
+**Decision basis:** spike issue [#1](https://github.com/pgquiles/opencode-muse/issues/1) (probe record: Q1 verdict, close-out, smoke-test comment). Companion context: TheStreamCode/opencode-muse-auth#12 (compliance concern that motivates this design).
 
 ---
 

@@ -26,10 +26,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/pgarciaq/opencode-muse.git"
+    "url": "git+https://github.com/pgquiles/opencode-muse.git"
   },
   "bugs": {
-    "url": "https://github.com/pgarciaq/opencode-muse/issues"
+    "url": "https://github.com/pgquiles/opencode-muse/issues"
   },
   "keywords": [
     "opencode",

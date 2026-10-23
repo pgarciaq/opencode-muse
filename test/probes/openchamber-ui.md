@@ -1,7 +1,7 @@
 # OpenChamber UI Feasibility Probe
 
 Date: 2026-10-22  
-OpenChamber source checkout: `/home/pgarciaq/dev/openchamber/openchamber` at `6491f51db`  
+OpenChamber source checkout: `/home/pgquiles/dev/openchamber/openchamber` at `6491f51db`<br>
 Probe type: read-only source inspection. No OpenChamber source was changed.
 
 ## Findings

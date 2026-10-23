@@ -76,8 +76,8 @@ setup placeholder rather than advertising a model that will fail on use.
 - **Approvals and questions:** OpenCode/OpenChamber cannot yet show Muse's exact
   approval choices or all structured questions. If Muse asks for one, the
   plugin stops safely rather than guessing or approving on your behalf. See
-  [#6](https://github.com/pgarciaq/opencode-muse/issues/6) and
-  [#22](https://github.com/pgarciaq/opencode-muse/issues/22).
+  [#6](https://github.com/pgquiles/opencode-muse/issues/6) and
+  [#22](https://github.com/pgquiles/opencode-muse/issues/22).
 - **Files and response formats:** The bridge accepts text, PNG/JPEG/GIF/WebP
   images, and MP4/MOV video. Audio and PDF attachments are not supported.
   Strict JSON output and some OpenCode generation settings (such as
@@ -91,15 +91,15 @@ setup placeholder rather than advertising a model that will fail on use.
   tested Linux Muse runtime, and custom session names may not work. Start a new
   session after rewinding or editing the OpenCode conversation. Rewinding does
   not undo files Muse changed. See
-  [#20](https://github.com/pgarciaq/opencode-muse/issues/20).
+  [#20](https://github.com/pgquiles/opencode-muse/issues/20).
 - **Recovery after missed events:** Basic session resume and cursor replay have
   been tested, but recovery from a real Muse event gap has only been tested
   with a simulated gap. See
-  [#23](https://github.com/pgarciaq/opencode-muse/issues/23).
+  [#23](https://github.com/pgquiles/opencode-muse/issues/23).
 - **Muse CLI compatibility:** The plugin is pinned and verified with Muse CLI
   and SDK 1.4.12. A protocol/schema mismatch fails closed rather than risking
   an incompatible session; broader version-compatibility policy is tracked in
-  [#21](https://github.com/pgarciaq/opencode-muse/issues/21).
+  [#21](https://github.com/pgquiles/opencode-muse/issues/21).
 - **Billing and simultaneous work:** Pay-as-you-go behavior has not yet been
   tested. The plugin also allows only one active writer per workspace, so a
   new turn may be reported as busy while another is still finishing.
