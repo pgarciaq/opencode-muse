@@ -4,16 +4,19 @@ import {
   chmodSync,
   existsSync,
   fsyncSync,
+  lstatSync,
   mkdirSync,
   openSync,
+  readlinkSync,
   readFileSync,
+  realpathSync,
   renameSync,
   statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve, sep, win32 } from "node:path";
+import { dirname, isAbsolute, join, posix, win32 } from "node:path";
 import {
   RegistryCorruptError,
   RegistryStorageError,
@@ -27,6 +30,7 @@ const HASH_PATTERN = /^[a-f0-9]{64}$/;
 const UUID_V7_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-7[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9._:@+_-]{1,512}$/;
 const METHOD_PATTERN = /^[a-z][A-Za-z0-9]*(?:\/[A-Za-z][A-Za-z0-9]*)+$/;
+const MAX_PATH_SYMLINKS = 40;
 
 export interface PendingCommandRecord {
   method: string;
@@ -62,28 +66,80 @@ export interface SessionRegistryOptions extends ResolveStateDirectoryOptions {
   now?: () => number;
 }
 
+/** Resolve existing path components while retaining a normalized not-yet-created suffix. */
+function canonicalPath(path: string, platform: NodeJS.Platform | "win32"): string {
+  const pathApi = platform === "win32" ? win32 : posix;
+  if (platform !== process.platform) return pathApi.resolve(path);
+
+  const absolute = pathApi.resolve(path);
+  const root = pathApi.parse(absolute).root;
+  let current = root;
+  let remaining = absolute.slice(root.length).split(pathApi.sep).filter(Boolean);
+  let followedSymlinks = 0;
+
+  while (remaining.length > 0) {
+    const [component, ...rest] = remaining;
+    const candidate = pathApi.join(current, component!);
+    let stats;
+    try {
+      stats = lstatSync(candidate);
+    } catch (error) {
+      // A missing component ends filesystem traversal; normalize the remaining suffix lexically.
+      if (isMissingFile(error)) return pathApi.resolve(current, ...remaining);
+      throw new RegistryValidationError();
+    }
+
+    if (stats.isSymbolicLink()) {
+      followedSymlinks += 1;
+      if (followedSymlinks > MAX_PATH_SYMLINKS) throw new RegistryValidationError();
+      let target: string;
+      try {
+        target = readlinkSync(candidate);
+      } catch {
+        throw new RegistryValidationError();
+      }
+      const absoluteTarget = pathApi.isAbsolute(target)
+        ? pathApi.resolve(target)
+        : pathApi.resolve(current, target);
+      const targetRoot = pathApi.parse(absoluteTarget).root;
+      current = targetRoot;
+      remaining = [
+        ...absoluteTarget.slice(targetRoot.length).split(pathApi.sep).filter(Boolean),
+        ...rest,
+      ];
+      continue;
+    }
+
+    try {
+      current = realpathSync(candidate);
+    } catch {
+      throw new RegistryValidationError();
+    }
+    remaining = rest;
+  }
+
+  return pathApi.resolve(current);
+}
+
 /** Refuse a caller-selected state root inside Muse's CLI-owned config directory. */
 export function assertSafeStateDirectory(path: string, options: ResolveStateDirectoryOptions = {}): string {
   const env = options.env ?? process.env;
   const homeDirectory = options.homeDirectory ?? homedir();
   const platform = options.platform ?? process.platform;
   const windows = platform === "win32";
-  const pathJoin = windows ? win32.join : join;
-  const pathResolve = windows ? win32.resolve : resolve;
-  const pathRelative = windows ? win32.relative : relative;
-  const pathSeparator = windows ? win32.sep : sep;
-  const pathIsAbsolute = windows ? win32.isAbsolute : isAbsolute;
+  const pathApi = windows ? win32 : posix;
   const configuredHome = env.XDG_CONFIG_HOME;
-  const configHome = requiredString(configuredHome) && pathIsAbsolute(configuredHome)
+  const configHome = requiredString(configuredHome) && pathApi.isAbsolute(configuredHome)
     ? configuredHome
-    : pathJoin(homeDirectory, ".config");
-  const museConfigDirectory = pathResolve(pathJoin(configHome, "muse"));
-  const relativePath = pathRelative(museConfigDirectory, pathResolve(path));
+    : pathApi.join(homeDirectory, ".config");
+  const museConfigDirectory = canonicalPath(pathApi.join(configHome, "muse"), platform);
+  const canonicalStateDirectory = canonicalPath(path, platform);
+  const relativePath = pathApi.relative(museConfigDirectory, canonicalStateDirectory);
   const outsideMuseConfig = relativePath === ".."
-    || relativePath.startsWith(`..${pathSeparator}`)
-    || pathIsAbsolute(relativePath);
+    || relativePath.startsWith(`..${pathApi.sep}`)
+    || pathApi.isAbsolute(relativePath);
   if (!outsideMuseConfig) throw new RegistryValidationError();
-  return path;
+  return canonicalStateDirectory;
 }
 
 interface RegistryEnvelope {

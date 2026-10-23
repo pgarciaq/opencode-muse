@@ -1,8 +1,19 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionRegistry } from "../../src/session/registry.js";
+import { WorkspaceLock } from "../../src/session/workspace-lock.js";
 import { RegistryValidationError, RegistryWorkspaceMismatchError } from "../../src/errors.js";
 
 const roots: string[] = [];
@@ -147,5 +158,54 @@ describe("SessionRegistry", () => {
       homeDirectory: "/home/test",
       platform: "linux",
     })).toThrow(RegistryValidationError);
+  });
+
+  test.skipIf(process.platform === "win32")("sessionRegistry.rejectsStateDirectorySymlinkIntoMuseConfiguration", () => {
+    const root = makeRoot();
+    const home = join(root, "home");
+    const museConfig = join(home, ".config", "muse");
+    const outside = join(root, "outside");
+    mkdirSync(museConfig, { recursive: true });
+    mkdirSync(outside, { recursive: true });
+    const stateSymlink = join(outside, "state");
+    symlinkSync(museConfig, stateSymlink, "dir");
+
+    expect(() => new SessionRegistry({ stateDirectory: stateSymlink, env: {}, homeDirectory: home, platform: process.platform }))
+      .toThrow(RegistryValidationError);
+    expect(() => new WorkspaceLock({ stateDirectory: stateSymlink, env: {}, homeDirectory: home, platform: process.platform }))
+      .toThrow(RegistryValidationError);
+  });
+
+  test.skipIf(process.platform === "win32")("sessionRegistry.rejectsDanglingStateDirectorySymlinkIntoMuseConfiguration", () => {
+    const root = makeRoot();
+    const home = join(root, "home");
+    const museConfig = join(home, ".config", "muse");
+    const outside = join(root, "outside");
+    mkdirSync(museConfig, { recursive: true });
+    mkdirSync(outside, { recursive: true });
+    const stateSymlink = join(outside, "state");
+    symlinkSync(join(museConfig, "not-created-yet"), stateSymlink, "dir");
+
+    expect(() => new SessionRegistry({ stateDirectory: stateSymlink, env: {}, homeDirectory: home, platform: process.platform }))
+      .toThrow(RegistryValidationError);
+    expect(() => new WorkspaceLock({ stateDirectory: stateSymlink, env: {}, homeDirectory: home, platform: process.platform }))
+      .toThrow(RegistryValidationError);
+  });
+
+  test.skipIf(process.platform === "win32")("sessionRegistry.allowsStateDirectorySymlinkOutsideMuseConfiguration", async () => {
+    const root = makeRoot();
+    const home = join(root, "home");
+    const museConfig = join(home, ".config", "muse");
+    const dataRoot = join(root, "data");
+    const symlinkRoot = join(root, "data-link");
+    mkdirSync(museConfig, { recursive: true });
+    mkdirSync(dataRoot, { recursive: true });
+    symlinkSync(dataRoot, symlinkRoot, "dir");
+    const registry = new SessionRegistry({ stateDirectory: symlinkRoot, env: {}, homeDirectory: home, platform: process.platform });
+
+    await registry.put(entry());
+
+    expect(existsSync(join(dataRoot, "sessions"))).toBe(true);
+    expect(existsSync(join(museConfig, "sessions"))).toBe(false);
   });
 });
