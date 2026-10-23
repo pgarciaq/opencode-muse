@@ -18,9 +18,11 @@ gates below). The provider bridge, durable session mapping, and local
 title/compaction paths are implemented. With Muse CLI and SDK 1.4.12, the
 sanitized catalog probe, provider listing, and a live no-variant text turn pass
 through OpenChamber's embedded OpenCode 2.0.32 binary when loaded by a
-project-local plugin shim. The user also confirmed that, after fully quitting
-and relaunching OpenChamber, Muse models appeared and an app-managed text turn
-returned `OPENCHAMBER_MUSE_OK`. Broader UI and lifecycle gates remain. Earlier
+project-local plugin shim. A locally packed tarball also passed provider
+discovery and a text turn in a temporary OpenCode profile. The user confirmed
+that, after fully quitting and relaunching OpenChamber, Muse models appeared
+and an app-managed text turn returned `OPENCHAMBER_MUSE_OK`. Broader UI and
+lifecycle gates remain. Earlier
 OpenCode 2.1.2 CLI hangs in empty projects did not
 reproduce on system OpenCode 2.1.3; see the
 [v1 tracking issue](https://github.com/pgarciaq/opencode-muse/issues/2).
