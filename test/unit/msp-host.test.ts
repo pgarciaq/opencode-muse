@@ -119,6 +119,51 @@ describe("MspHost", () => {
     await host.close();
   });
 
+  test("mspHostFailsClosedOnStructuredUserInputWithoutFabricatingAnAnswer", async () => {
+    const transport = new FakeMspTransport((request) => request.method === "initialize"
+      ? { schema: { fingerprint: EXPECTED_SCHEMA_FINGERPRINT } }
+      : {});
+    const fake = fakeHandshake(transport);
+    const host = await MspHost.start({ capabilities: { userInputDialogs: false } }, {
+      createHandshake: () => fake.handshake,
+    });
+    transport.deliver({
+      jsonrpc: "2.0",
+      id: 992,
+      method: "userInput/request",
+      params: {
+        itemId: "item-1",
+        questions: [{
+          header: "Choice",
+          id: "question-1",
+          options: [{ label: "A" }, { label: "B" }],
+          question: "Choose an option",
+          selection: { mode: "single" },
+        }],
+        sessionId: "ses-1",
+        toolCallId: "call-1",
+        toolName: "request_user_input",
+        turnId: "turn-1",
+        userInputId: "input-1",
+        viewCursor: "cursor-1",
+      },
+    });
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (transport.writtenFrames.some((frame) =>
+        typeof frame === "object" && frame !== null && "id" in frame && frame.id === 992,
+      )) break;
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+
+    const response = transport.writtenFrames.find((frame) =>
+      typeof frame === "object" && frame !== null && "id" in frame && frame.id === 992,
+    ) as { error?: { code?: number }; result?: unknown } | undefined;
+    expect(response?.error?.code).toBe(-32601);
+    expect(response?.result).toBeUndefined();
+    expect(transport.requests.some((request) => request.method === "userInput/answer")).toBe(false);
+    await host.close();
+  });
+
   test("mspHost.startTimeoutClosesTheHalfStartedHandshake", async () => {
     let closeCount = 0;
     const hostPromise = MspHost.start({ startupTimeoutMs: 10 }, {
