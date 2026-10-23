@@ -117,5 +117,6 @@ setup placeholder rather than advertising a model that will fail on use.
 
 ## Related projects
 
-- [opencode-muse-auth](https://github.com/TheStreamCode/opencode-muse-auth) lets OpenCode use a Muse Code subscription by extracting the credentials (API key) embedded in that subscription. Unsure this abides by the Muse Code subscription ToS (issue #12](https://github.com/TheStreamCode/opencode-muse-auth/issues/12)).
-- [Official Muse Code documenation](https://dev.meta.ai/docs/quickstart#agent-setup), describing how to use the Muse models in OpenCode via API key (a lot more expensive)
+- [opencode-muse-auth](https://github.com/TheStreamCode/opencode-muse-auth) is another credential-extraction/direct-API approach; see its [issue #12](https://github.com/TheStreamCode/opencode-muse-auth/issues/12) for its discussion of subscription-term concerns.
+- [opencode-muse-code](https://github.com/swalker326/opencode-muse-code) is an unofficial direct-API alternative. It reads the Muse CLI login, requests an API key from Meta, and sends model requests to Meta's API from OpenCode instead of routing inference through `muse serve` and MSP. Its subscription eligibility is separate from this plugin's CLI-mediated approach and has not been established by this project.
+- [Official Muse Code documentation](https://dev.meta.ai/docs/quickstart#agent-setup) describes using Muse models in OpenCode through the Meta API.
