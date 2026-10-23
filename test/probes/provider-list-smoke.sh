@@ -3,7 +3,9 @@ set -euo pipefail
 umask 077
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-RUN_ROOT="$(mktemp -d /tmp/opencode/muse-provider-list.XXXXXX)"
+TEMP_BASE="${TMPDIR:-/tmp}"
+mkdir -p "$TEMP_BASE"
+RUN_ROOT="$(mktemp -d "$TEMP_BASE/muse-provider-list.XXXXXX")"
 trap 'rm -rf "$RUN_ROOT"' EXIT
 PROJECT="$RUN_ROOT/project"
 mkdir -p "$PROJECT/.opencode/plugins"

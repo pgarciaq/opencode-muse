@@ -25,6 +25,7 @@ function runProviderListProbe(modelRows: string[]) {
       env: {
         ...process.env,
         PATH: `${binDirectory}:${process.env.PATH ?? ""}`,
+        TMPDIR: directory,
         MUSE_TEST_MODEL_ROWS: modelRows.join("\n"),
         OPENCODE_MUSE_MODELS_TIMEOUT: "5s",
       },
