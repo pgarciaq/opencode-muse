@@ -4,6 +4,7 @@ import {
   MuseTurnUnqueuedError,
 } from "../errors.js";
 import type { MspNotification } from "../msp/client.js";
+import { notificationCursorKey } from "../msp/notification.js";
 
 export interface FlatMuseUsage {
   inputTokens: number | undefined;
@@ -40,7 +41,7 @@ export class MuseStreamMapper {
   private readonly reasoningStarted = new Set<string>();
   private readonly itemDeltaCounts = new Map<string, number>();
   private readonly itemText = new Map<string, string>();
-  private readonly seenUsageCursors = new Set<string>();
+  private readonly seenUsageNotifications = new Set<string>();
   private readonly textParts: Array<{ type: "text"; text: string }> = [];
   private terminalUsage: FlatMuseUsage | undefined;
   private callUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0, reasoningTokens: 0 };
@@ -186,8 +187,9 @@ export class MuseStreamMapper {
 
   private tokenUsageEvent(params: Record<string, unknown>): void {
     if (params.turnId !== this.turnId || typeof params.viewCursor !== "string") return;
-    if (this.seenUsageCursors.has(params.viewCursor)) return;
-    this.seenUsageCursors.add(params.viewCursor);
+    const key = notificationCursorKey({ method: "session/tokenUsage", params });
+    if (!key || this.seenUsageNotifications.has(key)) return;
+    this.seenUsageNotifications.add(key);
     const raw = params.usage as Record<string, unknown> | undefined;
     if (!raw) return;
     const inputTokens = isNumber(params.promptTokens)

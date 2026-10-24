@@ -387,6 +387,90 @@ describe("Muse LanguageModelV3 bridge", () => {
     expect(result.finishReason).toMatchObject({ raw: "completed", unified: "stop" });
   });
 
+  test("languageModel.keepsDistinctNotificationsThatShareAViewCursor", async () => {
+    const sharedCursor = "cursor-shared-terminal";
+    const fake = fakeRuntime({
+      events: [
+        event("turn/started", { sessionId: "ses_model_test", turnId: "turn-1", viewCursor: "cursor-start" }),
+        event("session/statusChanged", { sessionId: "ses_model_test", status: { type: "idle" }, viewCursor: sharedCursor }),
+        event("turn/completed", {
+          sessionId: "ses_model_test",
+          turnId: "turn-1",
+          terminal: "completed",
+          viewCursor: sharedCursor,
+        }),
+      ],
+    });
+    const model = createMuseLanguageModel(fake.runtime, modelID);
+
+    const result = await model.doGenerate(callOptions());
+
+    expect(result.finishReason).toMatchObject({ raw: "completed", unified: "stop" });
+    await fake.releasedPromise;
+    expect(fake.released).toBe(1);
+  });
+
+  test("languageModel.pagesDistinctNotificationsThatShareAViewCursor", async () => {
+    const fake = fakeRuntime({
+      events: [
+        event("turn/started", { sessionId: "ses_model_test", turnId: "turn-1", viewCursor: "cursor-start" }),
+        event("view/gap", { sessionId: "ses_model_test", after: "cursor-after", next: "cursor-next" }),
+      ],
+      viewPages: [
+        {
+          events: [
+            event("session/statusChanged", { sessionId: "ses_model_test", status: { type: "idle" }, viewCursor: "cursor-shared" }),
+            event("turn/completed", {
+              sessionId: "ses_model_test",
+              turnId: "turn-1",
+              terminal: "completed",
+              viewCursor: "cursor-shared",
+            }),
+          ],
+          nextCursor: "cursor-page-next",
+        },
+      ],
+    });
+    const model = createMuseLanguageModel(fake.runtime, modelID);
+
+    const result = await model.doGenerate(callOptions());
+
+    expect(result.finishReason).toMatchObject({ raw: "completed", unified: "stop" });
+    await fake.releasedPromise;
+    expect(fake.released).toBe(1);
+  });
+
+  test("languageModel.pagesEveryNotificationAtTheGapBoundaryCursor", async () => {
+    const boundary = "cursor-boundary";
+    const fake = fakeRuntime({
+      events: [
+        event("turn/started", { sessionId: "ses_model_test", turnId: "turn-1", viewCursor: "cursor-start" }),
+        event("view/gap", { sessionId: "ses_model_test", after: "cursor-after", next: boundary }),
+      ],
+      viewPage: {
+        events: [
+          event("session/statusChanged", { sessionId: "ses_model_test", status: { type: "idle" }, viewCursor: boundary }),
+          event("session/branchChanged", { sessionId: "ses_model_test", branch: null, viewCursor: "cursor-interleaved" }),
+          event("turn/completed", {
+            sessionId: "ses_model_test",
+            turnId: "turn-1",
+            terminal: "completed",
+            viewCursor: boundary,
+          }),
+          event("session/branchChanged", { sessionId: "ses_model_test", branch: null, viewCursor: "cursor-after-boundary" }),
+        ],
+        nextCursor: "cursor-after-boundary",
+      },
+    });
+    const model = createMuseLanguageModel(fake.runtime, modelID);
+
+    const result = await model.doGenerate(callOptions());
+
+    expect(result.finishReason).toMatchObject({ raw: "completed", unified: "stop" });
+    await fake.releasedPromise;
+    expect(fake.released).toBe(1);
+  });
+
   test("languageModel.pagesAcrossShortViewPagesUntilTheGapBoundary", async () => {
     const fake = fakeRuntime({
       events: [

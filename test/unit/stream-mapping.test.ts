@@ -100,6 +100,29 @@ describe("Muse → LanguageModelV3 stream mapping", () => {
     expect(mapper.usage).toEqual({ inputTokens: 13, outputTokens: 7, totalTokens: 20, reasoningTokens: 1 });
   });
 
+  test("stream.deduplicatesUsageByNotificationRatherThanCursorAlone", () => {
+    const mapper = new MuseStreamMapper("turn-1");
+    mapper.accept(event("session/tokenUsage", {
+      sessionId: "ses-1", turnId: "turn-1", viewCursor: "cursor-1", promptTokens: 10, totalTokens: 12,
+      usage: { inputTokens: 10, outputTokens: 2, reasoningTokens: 0, cachedTokens: 0 },
+    }));
+    const second = event("session/tokenUsage", {
+      sessionId: "ses-1", turnId: "turn-1", viewCursor: "cursor-1", promptTokens: 20, totalTokens: 25,
+      usage: { inputTokens: 20, outputTokens: 5, reasoningTokens: 1, cachedTokens: 0 },
+    });
+    mapper.accept(second);
+    mapper.accept(event("session/tokenUsage", {
+      usage: { reasoningTokens: 1, outputTokens: 5, inputTokens: 20, cachedTokens: 0 },
+      totalTokens: 25,
+      promptTokens: 20,
+      viewCursor: "cursor-1",
+      turnId: "turn-1",
+      sessionId: "ses-1",
+    }));
+
+    expect(mapper.usage).toEqual({ inputTokens: 30, outputTokens: 7, totalTokens: 37, reasoningTokens: 1 });
+  });
+
   test("stream.terminalPerTurnUsageOverridesCallSnapshotsWhenPresent", () => {
     const mapper = new MuseStreamMapper("turn-1");
     mapper.accept(event("session/tokenUsage", {

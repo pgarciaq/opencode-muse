@@ -6,6 +6,7 @@ import type {
 import { createHash } from "node:crypto";
 import { MspCommandRejectedError, MuseBridgeError, MuseTranscriptDivergedError, MuseUnsupportedInputError, MuseUnsupportedRequestError, MspProtocolError, MspTransportError } from "../errors.js";
 import type { MspNotification } from "../msp/client.js";
+import { notificationCursorKey } from "../msp/notification.js";
 import { MUSE_CONTEXT_HEADERS, readRequestContext } from "./context.js";
 import { classifyMetaRequest, makeCompactionDigest, makeLocalTitle, type MetaRequestClass } from "./meta.js";
 import { promptContainsCompactionFingerprint } from "../session/fingerprint.js";
@@ -164,7 +165,7 @@ async function* pageGapNotifications(
 ): AsyncIterable<MspNotification> {
   let cursor = gap.after;
   const requestedCursors = new Set<string>([gap.after]);
-  const eventCursors = new Set<string>();
+  const eventKeys = new Set<string>();
   for (let pageNumber = 0; pageNumber < 100; pageNumber += 1) {
     const requestCursor = cursor;
     const page = await host.request<{ events?: unknown; nextCursor?: unknown }>("view/page", {
@@ -174,6 +175,7 @@ async function* pageGapNotifications(
       limit: 1000,
     });
     if (!Array.isArray(page.events)) throw new MspProtocolError("view/page");
+    let boundaryReached = false;
     for (const event of page.events) {
       if (typeof event !== "object" || event === null) throw new MspProtocolError("view/page");
       const record = event as { method?: unknown; params?: unknown };
@@ -181,12 +183,16 @@ async function* pageGapNotifications(
       if (typeof record.method !== "string" || !params || params.sessionId !== sessionId || typeof params.viewCursor !== "string") {
         throw new MspProtocolError("view/page");
       }
-      if (params.viewCursor === gap.next) return;
-      if (eventCursors.has(params.viewCursor)) throw new MspProtocolError("view/page");
-      eventCursors.add(params.viewCursor);
+      const atBoundary = params.viewCursor === gap.next;
+      if (atBoundary) boundaryReached = true;
       cursor = params.viewCursor;
-      yield { jsonrpc: "2.0", method: record.method, params };
+      const notification = { jsonrpc: "2.0", method: record.method, params } as MspNotification;
+      const key = notificationCursorKey(notification);
+      if (key && eventKeys.has(key)) throw new MspProtocolError("view/page");
+      if (key) eventKeys.add(key);
+      yield notification;
     }
+    if (boundaryReached) return;
     if (page.nextCursor === null || typeof page.nextCursor !== "string"
       || page.nextCursor === requestCursor || requestedCursors.has(page.nextCursor)) {
       throw new MspProtocolError("view/page");
@@ -269,7 +275,7 @@ export async function runMuseTurn(
     const events: AsyncIterable<MspNotification> = {
       [Symbol.asyncIterator]: async function* () {
         const itemTurnIds = new Map<string, string>();
-        const seenCursors = new Set<string>();
+        const seenNotifications = new Set<string>();
         const processNotification = async function* (notification: MspNotification): AsyncIterable<MspNotification> {
           const params = notification.params ?? {};
           if (params.sessionId !== session.sessionId) return;
@@ -296,19 +302,19 @@ export async function runMuseTurn(
             if (notification.method === "view/gap" && params.sessionId === session.sessionId) {
               if (typeof params.after !== "string" || typeof params.next !== "string") throw new MspProtocolError("view/gap");
               for await (const replay of pageGapNotifications(session.host, session.sessionId, { after: params.after, next: params.next })) {
-                const replayCursor = replay.params?.viewCursor;
-                if (typeof replayCursor === "string" && seenCursors.has(replayCursor)) continue;
-                if (typeof replayCursor === "string") seenCursors.add(replayCursor);
+                const replayKey = notificationCursorKey(replay);
+                if (replayKey && seenNotifications.has(replayKey)) continue;
+                if (replayKey) seenNotifications.add(replayKey);
                 for await (const output of processNotification(replay)) yield output;
                 if (terminalSeen) return;
               }
             } else {
-              const viewCursor = params.viewCursor;
-              if (typeof viewCursor === "string" && seenCursors.has(viewCursor)) {
+              const notificationKey = notificationCursorKey(notification);
+              if (notificationKey && seenNotifications.has(notificationKey)) {
                 next = await subscription!.next();
                 continue;
               }
-              if (typeof viewCursor === "string") seenCursors.add(viewCursor);
+              if (notificationKey) seenNotifications.add(notificationKey);
               for await (const output of processNotification(notification)) yield output;
               if (terminalSeen) return;
             }
