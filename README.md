@@ -16,7 +16,7 @@ Add the published package to your project-level `opencode.jsonc` (or
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugins": ["opencode-muse@0.1.2"],
+  "plugins": ["opencode-muse@0.2.0"],
 }
 ```
 
