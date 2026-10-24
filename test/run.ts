@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { readRepositoryJson, repositoryPath } from "./helpers.ts";
 import "./unit/msp-client.test.ts";
 import "./unit/msp-host.test.ts";
+import "./unit/msp-schema-diff.test.ts";
 import "./unit/session-registry.test.ts";
 import "./unit/workspace-lock.test.ts";
 import "./unit/catalog.test.ts";

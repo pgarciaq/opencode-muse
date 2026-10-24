@@ -116,6 +116,27 @@ These are schema observations, not all live behavioral probes. Keep the probe ou
 | Standalone OpenCode 2.1.4 request correlation | **PASS** | `bash test/probes/correlation-run.sh` ran unmodified against standalone 2.1.4: `CORRELATION_OK` (2 sessions, 7 `doStream` calls, kinds title/primary/generate/compaction, no crossover; `session.generate` left history byte-identical). The script now bypasses any proxy for localhost and reads the 2.1.4 server password from its own server log (2.1.4 `serve` generates a password that clients must present via `OPENCODE_PASSWORD`). |
 | Standalone OpenCode 2.1.4 shared-service terminal reconciliation (#25 re-check) | **PASS** | Project-local shim plus `opencode run --server` with a no-variant Spark 1.3 model completed a subscription-backed text turn through Muse CLI 1.4.12 and returned the scripted token exactly once (Contributor unchanged; no prompt, media, or prose logged). After a settle wait the plugin registry showed `activeTurnId` cleared, zero pending commands, persisted view cursor, committed transcript fingerprints, and zero workspace locks. Contrast: one-shot `--standalone` runs exit at foreground completion and retain a stale `activeTurnId`/pending entry — benign for one-shot sessions, but resuming such a session would trip the recovery-choice gate. |
 
+## Version Support Matrix
+
+How versions are represented and tested (policy #21): the supported contract is envelope schema version 1, spoken through `@muse-code/sdk`. A served fingerprint that differs from the SDK pin starts the host with a recorded `fingerprintWarning`; it is not a support boundary. Missing/malformed fingerprints and other envelope versions fail closed. Representation is tested by unit tests (`test/unit/msp-host.test.ts`, `test/unit/msp-schema-diff.test.ts`), the offline diff check below, and the live catalog probe. Full schema exports are never committed; `etc/msp-schema/snapshots.json` is the only versioned schema artifact.
+
+| Muse CLI | Served stable fingerprint | SDK pin | Envelope | Catalog | Text turn | Notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| `1.4.11` | superseded (see history) | `1.4.11` | `1` | PASS (historical) | PASS (historical) | Pre-warn-policy exact-pin era; results retained as history |
+| `1.4.12-R6909.1` | `sha256:cfdb6d2525601b9bac76584ccb0610ab3a5539b5e4f51141f079b99b39fcb4e0` | `1.4.12` | `1` | PASS | PASS (subscription) | SDK pin equals served fingerprint; no warning |
+| `1.4.13-R6996.1` | `sha256:7fddaf646dbc317e5fcac0785e135eb04df14fbb0db1863089dfd6da21730e5b` | `1.4.12` | `1` | PASS (subscription + PAYG) | PASS (subscription + PAYG) | First warn-policy version: SDK older than CLI, warning recorded, additive delta classified |
+
+Unrecorded CLI versions keep working under the warn policy; they appear here only after the migration procedure below classifies them.
+
+## Migration Procedure (new Muse CLI)
+
+1. Export the stable schema offline to an ephemeral directory: `muse schema generate-json-schema --out /tmp/opencode/muse-<version>-json`. Never commit the export.
+2. Append a snapshot entry: `bun run test/probes/msp-schema-diff.ts snapshot --export /tmp/opencode/muse-<version>-json --cli-version <version> --provenance <text>`, then add the printed JSON to `etc/msp-schema/snapshots.json`.
+3. Classify: `bun run test/probes/msp-schema-diff.ts diff --export /tmp/opencode/muse-<version>-json --ledger etc/msp-schema/snapshots.json --from-version <previous>`. Exit 0 means additive-only; exit 1 names the breaking change for human review — do not weaken the check to make it pass.
+4. Run the sanitized catalog probe and one minimal fixed-token text turn on each billing path in use; record exit status, token-match boolean, and billing path only.
+5. Record the version row above, the delta, and the probe outcomes; preserve older rows as history.
+6. An SDK bump is a separate, optionally-skipped step, justified only by a feature the plugin uses — never by the fingerprint alone. A skipped CLI version needs no action; classify it retroactively when its binary is still obtainable, otherwise mark it live-probe-only.
+
 ## Credential-Safety Record
 
 For schema discovery, only `muse --version`, `opencode --version`, `muse schema --help`, offline schema export, and `npm view @muse-code/sdk version` were used. Echo lifecycle probes used an isolated Muse home. The live Meta lifecycle and combined image/video probes used the official CLI and the user's existing subscription; no Muse credential/config file was opened and no Contributor-mode setting was changed. Probe logging excludes prompt, media payloads, and generated text.
