@@ -1,0 +1,700 @@
+{
+ "ledger_version": 1,
+ "note": "Full schema exports are never committed; this ledger of snapshots is the only versioned schema artifact.",
+ "entries": [
+  {
+   "cli_version": "1.4.12-R6909.1",
+   "fingerprint": "sha256:cfdb6d2525601b9bac76584ccb0610ab3a5539b5e4f51141f079b99b39fcb4e0",
+   "schema_version": 1,
+   "experimental": false,
+   "provenance": "reconstructed from pre-existing offline export; 1.4.12 binary no longer installed; fingerprint matches pinned SDK 1.4.12 constant and the served fingerprint previously recorded",
+   "surface": {
+    "methods": [
+     "approval/decide",
+     "approval/listPending",
+     "computerUseSettings/read",
+     "computerUseSettings/update",
+     "computerUseSetup/check",
+     "computerUseSetup/read",
+     "computerUseSetup/start",
+     "feedback/submit",
+     "goal/clear",
+     "goal/edit",
+     "goal/pause",
+     "goal/resume",
+     "goal/set",
+     "hook/list",
+     "initialize",
+     "item/readOutput",
+     "media/upload",
+     "model/list",
+     "plugin/install",
+     "plugin/list",
+     "plugin/marketplaceAdd",
+     "plugin/marketplaceRemove",
+     "plugin/marketplaceUpdate",
+     "recap/cancel",
+     "recap/request",
+     "session/compact",
+     "session/fork",
+     "session/leave",
+     "session/list",
+     "session/read",
+     "session/rename",
+     "session/resume",
+     "session/setApprovalMode",
+     "session/setModel",
+     "session/setReasoningEffort",
+     "session/sideChat",
+     "session/start",
+     "session/userShell",
+     "skill/import",
+     "skill/list",
+     "skill/setActivation",
+     "subagent/close",
+     "subagent/followupTask",
+     "subagent/interrupt",
+     "subagent/readResult",
+     "subagent/reopen",
+     "subagent/resume",
+     "subagent/sendMessage",
+     "subagent/stop",
+     "task/background",
+     "task/list",
+     "task/stop",
+     "task/stopAll",
+     "turn/cancel",
+     "turn/interrupt",
+     "turn/start",
+     "turn/steer",
+     "turn/unqueue",
+     "usage/read",
+     "userInput/answer",
+     "userInput/cancel",
+     "userInput/clarify",
+     "userInput/interrupt",
+     "view/page",
+     "view/subscribe",
+     "view/unsubscribe",
+     "workflow/cancel",
+     "workflow/childControl",
+     "workflow/pause",
+     "workflow/resume"
+    ],
+    "requests": [
+     "approval/request",
+     "userInput/request"
+    ],
+    "notifications": [
+     "approval/requested",
+     "approval/resolved",
+     "approval/reviewing",
+     "approval/updated",
+     "computerUseSetup/changed",
+     "initialized",
+     "item/completed",
+     "item/delta",
+     "item/started",
+     "item/updated",
+     "monitor/inboxItemAdmitted",
+     "monitor/inboxItemDrained",
+     "monitor/inboxItemVoided",
+     "plugin/changed",
+     "plugin/marketplaceChanged",
+     "recap/completed",
+     "session/approvalModeChanged",
+     "session/branchChanged",
+     "session/closed",
+     "session/contextUsage",
+     "session/goalChanged",
+     "session/leaveCompleted",
+     "session/listChanged",
+     "session/modelChanged",
+     "session/modelRouteUnserved",
+     "session/nameChanged",
+     "session/reasoningEffortChanged",
+     "session/started",
+     "session/statusChanged",
+     "session/todoListChanged",
+     "session/tokenUsage",
+     "session/viewHealthChanged",
+     "skill/changed",
+     "turn/completed",
+     "turn/foregroundCompleted",
+     "turn/modelRetryScheduled",
+     "turn/retracted",
+     "turn/retryScheduled",
+     "turn/started",
+     "turn/unqueued",
+     "usage/changed",
+     "userInput/engaged",
+     "userInput/requested",
+     "userInput/settled",
+     "view/gap"
+    ],
+    "errors": [
+     {
+      "code": -32700,
+      "kind": "parseError",
+      "retryable": false
+     },
+     {
+      "code": -32600,
+      "kind": "invalidRequest",
+      "overrideKinds": [
+       "notInitialized",
+       "alreadyInitialized"
+      ],
+      "retryable": false
+     },
+     {
+      "code": -32601,
+      "kind": "methodNotFound",
+      "overrideKinds": [
+       "experimentalRequired"
+      ],
+      "retryable": false
+     },
+     {
+      "code": -32602,
+      "kind": "invalidParams",
+      "overrideKinds": [
+       "experimentalRequired"
+      ],
+      "retryable": false
+     },
+     {
+      "code": -32603,
+      "kind": "internal",
+      "overrideKinds": [
+       "pageEventTooLarge",
+       "outputResultTooLarge"
+      ],
+      "retryable": false
+     },
+     {
+      "code": -32001,
+      "kind": "overloaded",
+      "retryable": true
+     },
+     {
+      "code": -32002,
+      "kind": "inputTooLarge",
+      "retryable": false
+     },
+     {
+      "code": -32010,
+      "kind": "capabilityRequired",
+      "retryable": false
+     },
+     {
+      "code": -32011,
+      "kind": "notFound",
+      "retryable": false
+     },
+     {
+      "code": -32013,
+      "kind": "interrupted"
+     },
+     {
+      "code": -32014,
+      "kind": "cancelled"
+     },
+     {
+      "code": -32020,
+      "kind": "sessionNotFound",
+      "retryable": false
+     },
+     {
+      "code": -32021,
+      "kind": "sessionInUse",
+      "retryable": false
+     },
+     {
+      "code": -32022,
+      "kind": "sessionAmbiguous",
+      "retryable": false
+     },
+     {
+      "code": -32023,
+      "kind": "forkBoundaryInvalid",
+      "retryable": false
+     },
+     {
+      "code": -32024,
+      "kind": "sessionNotLoaded",
+      "retryable": false
+     },
+     {
+      "code": -32025,
+      "kind": "sessionStreamMismatch",
+      "retryable": false
+     },
+     {
+      "code": -32030,
+      "kind": "commandRejected",
+      "retryable": false
+     },
+     {
+      "code": -32031,
+      "kind": "backpressured",
+      "retryable": true
+     },
+     {
+      "code": -32032,
+      "kind": "skillNotFound",
+      "retryable": false
+     },
+     {
+      "code": -32033,
+      "kind": "computerUseUnavailable",
+      "retryable": false
+     },
+     {
+      "code": -32034,
+      "kind": "marketplaceNotFound",
+      "retryable": false
+     },
+     {
+      "code": -32035,
+      "kind": "pluginNotFound",
+      "retryable": false
+     },
+     {
+      "code": -32036,
+      "kind": "marketplaceAlreadyExists",
+      "retryable": false
+     },
+     {
+      "code": -32037,
+      "kind": "pluginMutationsDisabled",
+      "retryable": false
+     },
+     {
+      "code": -32038,
+      "kind": "uploadNotFound",
+      "retryable": false
+     },
+     {
+      "code": -32040,
+      "kind": "viewTruncated",
+      "retryable": false
+     },
+     {
+      "code": -32041,
+      "kind": "outputUnavailable",
+      "retryable": false
+     },
+     {
+      "code": -32042,
+      "kind": "boundaryPruned",
+      "overrideKinds": [
+       "boundaryUnusable",
+       "noBoundary"
+      ],
+      "retryable": false
+     },
+     {
+      "code": -32050,
+      "kind": "approvalNotFound",
+      "retryable": false
+     },
+     {
+      "code": -32051,
+      "kind": "approvalAlreadyResolved",
+      "retryable": false
+     },
+     {
+      "code": -32052,
+      "kind": "approvalChoiceInvalid",
+      "retryable": false
+     },
+     {
+      "code": -32053,
+      "kind": "approvalRequirementStale",
+      "retryable": false
+     },
+     {
+      "code": -32054,
+      "kind": "approvalReviewerUnavailable",
+      "retryable": false
+     },
+     {
+      "code": -32055,
+      "kind": "userInputNotFound",
+      "retryable": false
+     },
+     {
+      "code": -32056,
+      "kind": "userInputAlreadySettled",
+      "retryable": false
+     },
+     {
+      "code": -32057,
+      "kind": "userInputAnswerInvalid",
+      "retryable": false
+     }
+    ],
+    "capabilities": [
+     "grantable",
+     "reserved"
+    ]
+   },
+   "sections_digest": {
+    "methods": "0cf90e7d2a9824bc56c22c82ae64f875b0c67bc31c945be1c20ed3bfdf6627e0",
+    "requests": "75e6ae7d5b3a55342be3e0106f186baeff502dc2e9e29541d4a7ad0962b493f9",
+    "notifications": "c3cd06a393a384b65c03cf81ff7e7d292e6bf33ae9f2c38fae2acfb2b0182be1",
+    "errors": "f89144877741c917c62809264d137f93ce9350eecee0cee43ca8a3569fd9fbd0",
+    "capabilities": "ea2e14f0669fd28c99576b2ef8f58af32b2a424c467395d0b6488c63ed6b7ed2",
+    "$defs": "08728d7526da175287158a902228c40b5a5cf53476ee81805ef08fe42d8b31a9"
+   }
+  },
+  {
+   "cli_version": "1.4.13-R6996.1",
+   "fingerprint": "sha256:7fddaf646dbc317e5fcac0785e135eb04df14fbb0db1863089dfd6da21730e5b",
+   "schema_version": 1,
+   "experimental": false,
+   "provenance": "fresh offline export from installed CLI on 2026-10-24",
+   "surface": {
+    "methods": [
+     "approval/decide",
+     "approval/listPending",
+     "computerUseSettings/read",
+     "computerUseSettings/update",
+     "computerUseSetup/check",
+     "computerUseSetup/read",
+     "computerUseSetup/start",
+     "feedback/submit",
+     "goal/clear",
+     "goal/edit",
+     "goal/pause",
+     "goal/resume",
+     "goal/set",
+     "hook/list",
+     "initialize",
+     "item/readOutput",
+     "media/upload",
+     "model/list",
+     "plugin/install",
+     "plugin/list",
+     "plugin/marketplaceAdd",
+     "plugin/marketplaceRemove",
+     "plugin/marketplaceUpdate",
+     "recap/cancel",
+     "recap/request",
+     "session/compact",
+     "session/fork",
+     "session/leave",
+     "session/list",
+     "session/read",
+     "session/rename",
+     "session/resume",
+     "session/setApprovalMode",
+     "session/setModel",
+     "session/setReasoningEffort",
+     "session/sideChat",
+     "session/start",
+     "session/userShell",
+     "skill/import",
+     "skill/list",
+     "skill/setActivation",
+     "subagent/close",
+     "subagent/followupTask",
+     "subagent/interrupt",
+     "subagent/readResult",
+     "subagent/reopen",
+     "subagent/resume",
+     "subagent/sendMessage",
+     "subagent/stop",
+     "task/background",
+     "task/list",
+     "task/stop",
+     "task/stopAll",
+     "turn/cancel",
+     "turn/interrupt",
+     "turn/start",
+     "turn/steer",
+     "turn/unqueue",
+     "usage/read",
+     "userInput/answer",
+     "userInput/cancel",
+     "userInput/clarify",
+     "userInput/interrupt",
+     "view/page",
+     "view/subscribe",
+     "view/unsubscribe",
+     "workflow/cancel",
+     "workflow/childControl",
+     "workflow/pause",
+     "workflow/resume"
+    ],
+    "requests": [
+     "approval/request",
+     "userInput/request"
+    ],
+    "notifications": [
+     "approval/requested",
+     "approval/resolved",
+     "approval/reviewing",
+     "approval/updated",
+     "computerUseSetup/changed",
+     "initialized",
+     "item/completed",
+     "item/delta",
+     "item/started",
+     "item/updated",
+     "monitor/inboxItemAdmitted",
+     "monitor/inboxItemDrained",
+     "monitor/inboxItemVoided",
+     "plugin/changed",
+     "plugin/marketplaceChanged",
+     "recap/completed",
+     "session/approvalModeChanged",
+     "session/branchChanged",
+     "session/closed",
+     "session/contextUsage",
+     "session/goalChanged",
+     "session/leaveCompleted",
+     "session/listChanged",
+     "session/modelChanged",
+     "session/modelRouteUnserved",
+     "session/nameChanged",
+     "session/reasoningEffortChanged",
+     "session/started",
+     "session/statusChanged",
+     "session/todoListChanged",
+     "session/tokenUsage",
+     "session/viewHealthChanged",
+     "skill/changed",
+     "turn/completed",
+     "turn/foregroundCompleted",
+     "turn/modelRetryScheduled",
+     "turn/retracted",
+     "turn/retryScheduled",
+     "turn/started",
+     "turn/unqueued",
+     "usage/changed",
+     "userInput/engaged",
+     "userInput/requested",
+     "userInput/settled",
+     "view/gap"
+    ],
+    "errors": [
+     {
+      "code": -32700,
+      "kind": "parseError",
+      "retryable": false
+     },
+     {
+      "code": -32600,
+      "kind": "invalidRequest",
+      "overrideKinds": [
+       "notInitialized",
+       "alreadyInitialized"
+      ],
+      "retryable": false
+     },
+     {
+      "code": -32601,
+      "kind": "methodNotFound",
+      "overrideKinds": [
+       "experimentalRequired"
+      ],
+      "retryable": false
+     },
+     {
+      "code": -32602,
+      "kind": "invalidParams",
+      "overrideKinds": [
+       "experimentalRequired"
+      ],
+      "retryable": false
+     },
+     {
+      "code": -32603,
+      "kind": "internal",
+      "overrideKinds": [
+       "pageEventTooLarge",
+       "outputResultTooLarge"
+      ],
+      "retryable": false
+     },
+     {
+      "code": -32001,
+      "kind": "overloaded",
+      "retryable": true
+     },
+     {
+      "code": -32002,
+      "kind": "inputTooLarge",
+      "retryable": false
+     },
+     {
+      "code": -32010,
+      "kind": "capabilityRequired",
+      "retryable": false
+     },
+     {
+      "code": -32011,
+      "kind": "notFound",
+      "retryable": false
+     },
+     {
+      "code": -32013,
+      "kind": "interrupted"
+     },
+     {
+      "code": -32014,
+      "kind": "cancelled"
+     },
+     {
+      "code": -32020,
+      "kind": "sessionNotFound",
+      "retryable": false
+     },
+     {
+      "code": -32021,
+      "kind": "sessionInUse",
+      "retryable": false
+     },
+     {
+      "code": -32022,
+      "kind": "sessionAmbiguous",
+      "retryable": false
+     },
+     {
+      "code": -32023,
+      "kind": "forkBoundaryInvalid",
+      "retryable": false
+     },
+     {
+      "code": -32024,
+      "kind": "sessionNotLoaded",
+      "retryable": false
+     },
+     {
+      "code": -32025,
+      "kind": "sessionStreamMismatch",
+      "retryable": false
+     },
+     {
+      "code": -32030,
+      "kind": "commandRejected",
+      "retryable": false
+     },
+     {
+      "code": -32031,
+      "kind": "backpressured",
+      "retryable": true
+     },
+     {
+      "code": -32032,
+      "kind": "skillNotFound",
+      "retryable": false
+     },
+     {
+      "code": -32033,
+      "kind": "computerUseUnavailable",
+      "retryable": false
+     },
+     {
+      "code": -32034,
+      "kind": "marketplaceNotFound",
+      "retryable": false
+     },
+     {
+      "code": -32035,
+      "kind": "pluginNotFound",
+      "retryable": false
+     },
+     {
+      "code": -32036,
+      "kind": "marketplaceAlreadyExists",
+      "retryable": false
+     },
+     {
+      "code": -32037,
+      "kind": "pluginMutationsDisabled",
+      "retryable": false
+     },
+     {
+      "code": -32038,
+      "kind": "uploadNotFound",
+      "retryable": false
+     },
+     {
+      "code": -32040,
+      "kind": "viewTruncated",
+      "retryable": false
+     },
+     {
+      "code": -32041,
+      "kind": "outputUnavailable",
+      "retryable": false
+     },
+     {
+      "code": -32042,
+      "kind": "boundaryPruned",
+      "overrideKinds": [
+       "boundaryUnusable",
+       "noBoundary"
+      ],
+      "retryable": false
+     },
+     {
+      "code": -32050,
+      "kind": "approvalNotFound",
+      "retryable": false
+     },
+     {
+      "code": -32051,
+      "kind": "approvalAlreadyResolved",
+      "retryable": false
+     },
+     {
+      "code": -32052,
+      "kind": "approvalChoiceInvalid",
+      "retryable": false
+     },
+     {
+      "code": -32053,
+      "kind": "approvalRequirementStale",
+      "retryable": false
+     },
+     {
+      "code": -32054,
+      "kind": "approvalReviewerUnavailable",
+      "retryable": false
+     },
+     {
+      "code": -32055,
+      "kind": "userInputNotFound",
+      "retryable": false
+     },
+     {
+      "code": -32056,
+      "kind": "userInputAlreadySettled",
+      "retryable": false
+     },
+     {
+      "code": -32057,
+      "kind": "userInputAnswerInvalid",
+      "retryable": false
+     }
+    ],
+    "capabilities": [
+     "grantable",
+     "reserved"
+    ]
+   },
+   "sections_digest": {
+    "methods": "0cf90e7d2a9824bc56c22c82ae64f875b0c67bc31c945be1c20ed3bfdf6627e0",
+    "requests": "75e6ae7d5b3a55342be3e0106f186baeff502dc2e9e29541d4a7ad0962b493f9",
+    "notifications": "c3cd06a393a384b65c03cf81ff7e7d292e6bf33ae9f2c38fae2acfb2b0182be1",
+    "errors": "f89144877741c917c62809264d137f93ce9350eecee0cee43ca8a3569fd9fbd0",
+    "capabilities": "ea2e14f0669fd28c99576b2ef8f58af32b2a424c467395d0b6488c63ed6b7ed2",
+    "$defs": "052b5f9891f4fe8579428f4628c7545ce1bd40841d05cf2d188e6427e47b90be"
+   }
+  }
+ ]
+}

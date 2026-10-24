@@ -1,6 +1,6 @@
 # Compatibility Record
 
-Updated: 2026-10-23
+Updated: 2026-10-24
 
 This file records runtime facts and probe results. It must never contain credentials, prompts, transcripts, raw login output, or unsanitized provider diagnostics.
 
@@ -8,11 +8,11 @@ This file records runtime facts and probe results. It must never contain credent
 
 | Component | Observed/pinned candidate | Evidence / status |
 | --- | --- | --- |
-| Muse CLI | `1.4.12` (`1.4.12-R6909.1`) | `muse --version`; current stable schema fingerprint is recorded below |
+| Muse CLI | `1.4.13` (`1.4.13-R6996.1`; `1.4.12-R6909.1` historical) | `muse --version`; stable schema fingerprints per version are recorded below |
 | OpenCode | `2.1.4` (current CLI; implementation target was `2.1.2`, last full smoke `2.1.3`) | `opencode --version`; standalone `2.1.4` passes the correlation probe, provider-list smoke, a live no-variant bridge turn, and the shared-service terminal-reconciliation re-check (rows below). `2.1.3` results remain historical. |
 | OpenChamber embedded OpenCode | `2.0.32` | Embedded binary at `/tmp/.mount_OpenChoLGwRI/resources/opencode-cli/opencode`; project-local plugin shim passed provider listing, request correlation, and a live no-variant bridge turn. This is a direct embedded-CLI smoke, not a full OpenChamber UI acceptance test. |
 | OpenCode smoke baseline | `2.1.1` | Earlier `seam-smoke` evidence; retain as historical evidence, not the current target |
-| `@muse-code/sdk` | `1.4.12` | `npm view @muse-code/sdk@1.4.12 version`; its expected fingerprint matches the Muse 1.4.12 served stable fingerprint |
+| `@muse-code/sdk` | `1.4.12` | `npm view @muse-code/sdk@1.4.12 version`; its expected fingerprint matches the Muse 1.4.12 served stable fingerprint. Under policy #21 the host no longer requires SDK/CLI fingerprint equality: SDK 1.4.12 starts against CLI 1.4.13 with a recorded warning |
 
 The current OpenChamber test host embeds OpenCode `2.0.32`; system-wide OpenCode is `2.1.3`. The earlier `2.1.1` smoke test remains historical evidence only.
 
@@ -38,7 +38,13 @@ Current exports were generated offline from Muse CLI `1.4.12-R6909.1` under `/tm
 | Experimental `msp.schema.json` | `f900a7e81fc194773cedb2d5be8805138aeb75bf76fcc03645084792935b2056` |
 | Experimental `msp.d.ts` | `1cd4fb62ec9dc2448dd27873715e85d34bfdb8335f301d63f7c73d3499a67ff9` |
 
-The SDK 1.4.12 `EXPECTED_SCHEMA_FINGERPRINT` exactly matches the stable fingerprint served by Muse CLI 1.4.12. The generated declaration diff from the 1.4.11 SDK is additive (new approval/CUA and background-terminal/checkpoint data and optional fields); the strict runtime fingerprint check remains enabled until a separate policy issue is resolved.
+The SDK 1.4.12 `EXPECTED_SCHEMA_FINGERPRINT` exactly matches the stable fingerprint served by Muse CLI 1.4.12. The generated declaration diff from the 1.4.11 SDK is additive (new approval/CUA and background-terminal/checkpoint data and optional fields). Policy #21 has since landed: fingerprint drift is a recorded `fingerprintWarning`, not a start failure; missing/malformed fingerprints and unsupported envelope versions still fail closed.
+
+## Schema Snapshot Ledger
+
+Full schema exports are never committed. `etc/msp-schema/snapshots.json` holds one small snapshot per CLI version (stable fingerprint, envelope version, method/notification/error/capability name sets, section digests). The 1.4.12 entry was reconstructed from the pre-existing offline export (binary no longer installed); the 1.4.13 entry comes from a fresh export of the installed CLI.
+
+1.4.12 → 1.4.13 classification (snapshot diff, 2026-10-24): no method, request, notification, error, or capability names added or removed. Four `$defs` added (`ApprovalCuaDataFact`, `ApprovalCuaMask`, `QueuedInput`, `ReplayHint`), none removed; four changed with only added optional properties (`ApprovalCuaCardFacts` +`data`; `Item` +`replayHint`, +`terminalRowAfterItemId`, +`workId`; `SessionReadResult` +`queuedInputs`; `SessionResumeParams` non-structural). The delta is fully additive: no removals, no new required fields.
 
 ## Schema Facts Relevant to v1
 
@@ -61,6 +67,9 @@ These are schema observations, not all live behavioral probes. Keep the probe ou
 | --- | --- | --- |
 | Muse/OpenCode/SDK version pin and schema export | **Updated for 1.4.12** | Muse CLI and `@muse-code/sdk` are both 1.4.12; SDK expected fingerprint matches the CLI-served stable fingerprint. |
 | Muse 1.4.12 handshake and `model/list` | **PASS** | Sanitized `test/probes/msp-catalog.ts` returned `MSP_CATALOG_PROBED`, stable fingerprint `sha256:cfdb6d2525601b9bac76584ccb0610ab3a5539b5e4f51141f079b99b39fcb4e0`, and three Meta models. Before the SDK update, the 1.4.12 CLI failed the exact handshake against the 1.4.11 SDK fingerprint; no guard was weakened. |
+| Muse 1.4.13 handshake and `model/list` (SDK 1.4.12, warn policy) | **PASS on subscription** | Sanitized `test/probes/msp-catalog.ts` returned `MSP_CATALOG_PROBED`, served fingerprint `sha256:7fddaf646dbc317e5fcac0785e135eb04df14fbb0db1863089dfd6da21730e5b`, `source: "providerCatalog"`, three Meta models. `META_API_KEY` unset and `muse usage` showed subscription allowance in the same environment. The host recorded a `fingerprintWarning` (pinned 1.4.12 fingerprint) and started normally. |
+| Muse 1.4.13 subscription text turn | **PASS** | A minimal `turn/start` with a fixed-token prompt completed with terminal `completed` and the expected token matched; only the boolean match, event-method names, and numeric usage were logged. Unlike the 1.4.11 Meta probes, `item/delta` events were observed on 1.4.13. Terminal `turn/completed.usage` remained absent; session usage was numeric. |
+| Muse 1.4.13 PAYG paths | **Not run** | Deferred: this session runs on subscription with no PAYG key available. Run the Task 3 probes from a session with `META_API_KEY` set (catalog, then one minimal fixed-token turn); no key material belongs in logs or commits. |
 | Muse 1.4.12 unauthenticated catalog fallback | **PASS for safe negative path** | With a temporary Muse home and `META_API_KEY`/related key variables unset, `model/list` returned `source: "bundledCatalog"` with zero models; no inference request was sent. The plugin retains its disabled setup-required placeholder (unit-tested). This does not verify the exact no-subscription/billing error copy. |
 | Muse 1.4.12 schema delta vs 1.4.11 | **Initial diff: additive declarations observed** | Exported stable declarations add approval/CUA and background-terminal/checkpoint data and optional fields; no removed exported declarations were found in the initial textual diff. The fingerprint remains exact-match because additive source shape alone does not prove semantic compatibility. Follow-up policy: #21. |
 | OpenCode `model.request` → V3 call-option correlation on OpenCode 2.1.2 | **PASS for session-associated `doStream`** | `bash test/probes/correlation-run.sh` passed on one shared `opencode serve` with two concurrent sessions. Seven calls (title, primary, session `generate`, and compaction) had matching hook/V3 signatures and no session crossover. Variant `minimal` survived. No direct profile field exists on the probed model object; resolve profile from the selected catalog model. |
