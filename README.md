@@ -104,6 +104,16 @@ setup placeholder rather than advertising a model that will fail on use.
   tested. The plugin also allows only one active writer per workspace, so a
   new turn may be reported as busy while another is still finishing.
 
+## Troubleshooting
+
+- **"Muse Spark 1.3 Contributor" never connects after a model switch:** that
+  entry is a retired OpenCode-gateway model (`opencode/muse-spark-1.3-contributor-free`),
+  not this plugin's model. It no longer resolves anywhere, so OpenCode keeps
+  retrying and the session appears stuck on "connecting". Pick the model under
+  provider **Muse Code** — `muse/muse-profile-tbh-model-muse-spark-1.3` —
+  instead of any historical "contributor-free" entry in recent-model lists. See
+  [#26](https://github.com/pgquiles/opencode-muse/issues/26).
+
 ## Credits and references
 
 - [opencode-claude](https://github.com/openchamber/opencode-claude) — a
