@@ -55,6 +55,7 @@ describe("MspHost", () => {
     expect(clientInfo).toEqual({ name: "opencode_muse", version: "0.1.0" });
     expect(clientInfo.name).toMatch(/^[a-z0-9_]+$/);
     expect(host.initializeResult).toEqual({ schema: { fingerprint: EXPECTED_SCHEMA_FINGERPRINT } });
+    expect(host.fingerprintWarning).toBeUndefined();
     await host.close();
     expect(fake.closeCount).toBe(1);
   });
@@ -243,9 +244,38 @@ describe("MspHost", () => {
     expect(host.isClosed).toBe(true);
   });
 
-  test("mspHost.rejectsAChangedServedSchemaAndClosesTheRuntime", async () => {
+  test("mspHost.startsWithAWarningOnChangedServedFingerprintAndKeepsTheRuntimeOpen", async () => {
+    const servedFingerprint = "sha256:7fddaf646dbc317e5fcac0785e135eb04df14fbb0db1863089dfd6da21730e5b";
     const transport = new FakeMspTransport((request) => request.method === "initialize"
-      ? { schema: { fingerprint: "sha256:changed" } }
+      ? { schema: { fingerprint: servedFingerprint } }
+      : {});
+    const fake = fakeHandshake(transport);
+
+    const host = await MspHost.start({}, { createHandshake: () => fake.handshake });
+
+    expect(host.fingerprintWarning?.served).toBe(servedFingerprint);
+    expect(host.fingerprintWarning?.pinned).toBe(EXPECTED_SCHEMA_FINGERPRINT);
+    expect(fake.closeCount).toBe(0);
+    await host.close();
+    expect(fake.closeCount).toBe(1);
+  });
+
+  test("mspHost.rejectsAMissingOrMalformedServedFingerprintAndClosesTheRuntime", async () => {
+    for (const schema of [{ fingerprint: "sha256:changed" }, {}]) {
+      const transport = new FakeMspTransport((request) => request.method === "initialize"
+        ? { schema }
+        : {});
+      const fake = fakeHandshake(transport);
+
+      await expect(MspHost.start({}, { createHandshake: () => fake.handshake }))
+        .rejects.toBeInstanceOf(MspSchemaMismatchError);
+      expect(fake.closeCount).toBe(1);
+    }
+  });
+
+  test("mspHost.rejectsAnUnsupportedEnvelopeVersionAndClosesTheRuntime", async () => {
+    const transport = new FakeMspTransport((request) => request.method === "initialize"
+      ? { schema: { fingerprint: EXPECTED_SCHEMA_FINGERPRINT, version: 999 } }
       : {});
     const fake = fakeHandshake(transport);
 

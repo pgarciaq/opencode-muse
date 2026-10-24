@@ -357,3 +357,4 @@ Confirmatory live probes (streaming, `doGenerate`, cancel, view replay/reconnect
 | 2026-10-21 | Model selection uses `session/setModel`; effort uses per-turn `turn/start.reasoningEffort` | The OpenCode picker must match Muse's actual route and selected variant |
 | 2026-10-22 | Resolve Muse `profileId` from the selected catalog model, not a request hook field | OpenCode 2.1.2 probe exposed provider/model/variant but no direct profile property |
 | 2026-10-22 | `session.generate` is unsupported in v1 unless a non-mutating Muse route is proven | OpenCode calls it with session context but promises not to mutate its history; a normal Muse turn would pollute the authoritative Muse session |
+| 2026-10-24 | Warn, don't fail, on unknown served schema fingerprints; fail closed only on missing/malformed fingerprint or envelope version | SDK additive-optional evolution model; resolves #21 without lockstep SDK bumps |

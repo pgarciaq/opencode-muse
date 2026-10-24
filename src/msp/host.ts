@@ -1,8 +1,10 @@
 import {
   MspError,
+  checkServedFingerprint,
   EXPECTED_SCHEMA_FINGERPRINT,
   MuseHostStartError as SdkHostStartError,
   spawnMspConnection,
+  type FingerprintWarning,
   type MspHandshake,
   type SpawnMspConnectionOptions,
 } from "@muse-code/sdk";
@@ -82,6 +84,18 @@ function sanitizeExit(value: unknown): MspHostExit {
   return safe;
 }
 
+const SCHEMA_FINGERPRINT_PATTERN = /^sha256:[0-9a-f]{64}$/;
+
+/** Envelope schema versions this plugin speaks. The SDK documents version 1 as long-lived. */
+const SUPPORTED_SCHEMA_VERSION = 1;
+
+function readSchemaInfo(value: unknown): { fingerprint: string; version?: unknown } | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const record = value as { fingerprint?: unknown; version?: unknown };
+  if (typeof record.fingerprint !== "string") return undefined;
+  return { fingerprint: record.fingerprint, version: record.version };
+}
+
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   return Promise.race([
@@ -106,6 +120,8 @@ async function closeQuietly(close: () => Promise<unknown>): Promise<void> {
 export class MspHost {
   readonly client: MspClient;
   readonly initializeResult: Record<string, unknown>;
+  /** Set when the served schema fingerprint differs from the SDK pin. Warns, never blocks. */
+  readonly fingerprintWarning?: FingerprintWarning;
   readonly exited: Promise<MspHostExit>;
   private state: "open" | "closing" | "closed" = "open";
   private closePromise: Promise<void> | undefined;
@@ -113,8 +129,10 @@ export class MspHost {
   private constructor(
     private readonly runtime: MspHostRuntime,
     options: MspHostOptions,
+    fingerprintWarning?: FingerprintWarning,
   ) {
     this.initializeResult = runtime.initializeResult;
+    this.fingerprintWarning = fingerprintWarning;
     this.client = new MspClient(runtime.connection, {
       commandTimeoutMs: options.commandTimeoutMs,
       requestTimeoutMs: options.requestTimeoutMs,
@@ -163,13 +181,17 @@ export class MspHost {
     const initializing = handshake.initialize(initializeParams);
     try {
       const runtime = await withTimeout(initializing, timeoutMs);
-      const schema = runtime.initializeResult.schema as { fingerprint?: unknown } | undefined;
-      const servedFingerprint = typeof schema?.fingerprint === "string" ? schema.fingerprint : "missing";
-      if (servedFingerprint !== EXPECTED_SCHEMA_FINGERPRINT) {
+      const schema = readSchemaInfo(runtime.initializeResult.schema);
+      const servedFingerprint = schema?.fingerprint ?? "missing";
+      if (
+        schema === undefined ||
+        !SCHEMA_FINGERPRINT_PATTERN.test(schema.fingerprint) ||
+        (schema.version !== undefined && schema.version !== SUPPORTED_SCHEMA_VERSION)
+      ) {
         await closeQuietly(runtime.close.bind(runtime));
         throw new MspSchemaMismatchError(EXPECTED_SCHEMA_FINGERPRINT, servedFingerprint);
       }
-      return new MspHost(runtime, options);
+      return new MspHost(runtime, options, checkServedFingerprint(schema.fingerprint));
     } catch (error) {
       if (error instanceof MspSchemaMismatchError) throw error;
       if (error instanceof MspStartupTimeoutError) {

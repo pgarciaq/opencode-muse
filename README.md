@@ -96,9 +96,10 @@ setup placeholder rather than advertising a model that will fail on use.
   been tested, but recovery from a real Muse event gap has only been tested
   with a simulated gap. See
   [#23](https://github.com/pgquiles/opencode-muse/issues/23).
-- **Muse CLI compatibility:** The plugin is pinned and verified with Muse CLI
-  and SDK 1.4.12. A protocol/schema mismatch fails closed rather than risking
-  an incompatible session; broader version-compatibility policy is tracked in
+- **Muse CLI compatibility:** The plugin is pinned to SDK 1.4.12 and speaks
+  envelope schema version 1. A newer CLI fingerprint starts with a recorded
+  warning instead of failing closed; a missing/malformed fingerprint or an
+  unsupported envelope version still fails closed. See
   [#21](https://github.com/pgquiles/opencode-muse/issues/21).
 - **Billing and simultaneous work:** Pay-as-you-go behavior has not yet been
   tested. The plugin also allows only one active writer per workspace, so a
