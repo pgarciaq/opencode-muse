@@ -16,6 +16,7 @@
 ## Protocol and Session Invariants
 
 - Pin the OpenCode binary, Muse CLI, exported MSP schema, and `@muse-code/sdk` versions used for implementation and tests. Vendored schema assumptions must be checked against the pinned CLI.
+- Record every Muse CLI version used during development as a snapshot entry in the schema ledger plus a row in `docs/compatibility.md`; never commit full schema exports.
 - Use the proven `aisdk:` language-model hook only after the request-correlation probe passes. Never infer session context from global “most recent request” state.
 - Preserve MSP command idempotency for methods whose schema defines `commandId`: persist/reuse it with the exact payload. Each `media/upload` chunk has both a `commandId` and the upload's shared `uploadId`; `view/subscribe` is cursor-based and has no command ID. Never invent IDs or automatically replay an ambiguous side-effecting turn with a new command ID.
 - Subscribe to Muse session views and persist cursors; resume/replay through the protocol rather than assuming notifications were received.
