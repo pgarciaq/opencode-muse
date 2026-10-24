@@ -8,6 +8,14 @@ mkdir -p "$PROJECT/.opencode/plugins" "$RUN_ROOT/logs"
 cp "$ROOT/test/probes/correlation-plugin.js" "$PROJECT/.opencode/plugins/correlation-plugin.js"
 export OPENCODE_MUSE_CORRELATION_LOG="$RUN_ROOT/logs/events.jsonl"
 
+# Probe traffic must reach this script's own server directly: bypass any
+# configured proxy for localhost before starting the server or its clients.
+for loopback in 127.0.0.1 localhost; do
+  case ",${no_proxy:-}," in *,"$loopback,"*) ;; *) no_proxy="${no_proxy:+$no_proxy,}$loopback" ;; esac
+  case ",${NO_PROXY:-}," in *,"$loopback,"*) ;; *) NO_PROXY="${NO_PROXY:+$NO_PROXY,}$loopback" ;; esac
+done
+export no_proxy NO_PROXY
+
 PORT="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')"
 SERVER_URL="http://127.0.0.1:$PORT"
 SERVER_PID=""
@@ -33,6 +41,15 @@ for _ in $(seq 1 50); do
 done
 if [[ "$ready" != 1 ]]; then
   echo "OpenCode server did not become ready; sanitized server logs: $RUN_ROOT/server.stderr" >&2
+  exit 1
+fi
+
+# Current OpenCode prints a server password at startup and requires it on
+# clients; read it from our own server log (never logged or persisted).
+OPENCODE_PASSWORD="$(sed -n 's/^server password //p' "$RUN_ROOT/server.stdout" | head -n 1)"
+export OPENCODE_PASSWORD
+if [[ -z "$OPENCODE_PASSWORD" ]]; then
+  echo "Server did not print a password; cannot authenticate probe runs" >&2
   exit 1
 fi
 
