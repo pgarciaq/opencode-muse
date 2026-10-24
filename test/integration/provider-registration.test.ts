@@ -239,27 +239,32 @@ describe("Muse OpenCode provider registration", () => {
     expect(() => provider.languageModel("setup-required")).toThrow(/opencode-muse: language hook did not engage/);
   });
 
-  test("provider.setupReturnsBeforeCatalogNetworkDiscoveryFinishes", async () => {
+  test("provider.setupWaitsForCatalogDiscoveryBeforeReturning", async () => {
+    const fake = fakeContext();
+    const runtime = await createProviderPlugin(fake.context as never, "file:///plugin/dist/index.js", {
+      fetchCatalog: async () => liveCatalog(),
+    });
+
+    expect(runtime.catalog.hasLiveCatalog).toBe(true);
+    expect(fake.reloads).toBe(1);
+    expect(fake.registrations.at(-1)?.models[0]?.id).toContain("muse-wonder-1.0");
+    await runtime.dispose();
+  });
+
+  test("provider.setupReturnsAfterABoundedWaitWhenDiscoveryStalls", async () => {
     const fake = fakeContext();
     let finishFetch!: (value: MuseCatalogSnapshot) => void;
-    let markFetchStarted!: () => void;
-    const fetchStarted = new Promise<void>((resolve) => { markFetchStarted = resolve; });
     const setup = createProviderPlugin(fake.context as never, "file:///plugin/dist/index.js", {
-      fetchCatalog: () => {
-        markFetchStarted();
-        return new Promise((resolve) => { finishFetch = resolve; });
-      },
+      fetchCatalog: () => new Promise((resolve) => { finishFetch = resolve; }),
+      setupRefreshTimeoutMs: 30,
     });
-    await fetchStarted;
-    const returnedBeforeFetch = await Promise.race([
-      setup.then(() => true),
-      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 20)),
-    ]);
+    const started = Date.now();
     const runtime = await setup;
+    const elapsed = Date.now() - started;
 
-    expect(returnedBeforeFetch).toBe(true);
+    expect(elapsed).toBeGreaterThanOrEqual(25);
+    expect(elapsed).toBeLessThan(2000);
     expect(runtime.catalog.hasLiveCatalog).toBe(false);
-    expect(fake.reloads).toBe(0);
     finishFetch(liveCatalog());
     await runtime.refreshTask;
     expect(runtime.catalog.hasLiveCatalog).toBe(true);

@@ -24,7 +24,12 @@ export type MuseProviderContext = Pick<Plugin.Context, "provider" | "session" | 
 export interface ProviderPluginDependencies {
   fetchCatalog?: (directory: string) => Promise<MuseCatalogSnapshot>;
   createSessionManager?: () => MuseSessionManager;
+  /** Bounds how long setup waits for the live catalog before falling back. Defaults to 15s. */
+  setupRefreshTimeoutMs?: number;
 }
+
+/** Upper bound on delaying provider readiness for live catalog discovery. */
+export const SETUP_REFRESH_TIMEOUT_MS = 15_000;
 
 export interface MuseProviderRuntime {
   catalog: CatalogCache;
@@ -125,6 +130,25 @@ export async function createProviderPlugin(
       },
     );
   });
+
+  // Wait for live discovery (bounded) so consumers never see the pre-refresh
+  // fallback. On timeout or failure the disabled placeholder stays in place
+  // and a late refresh still replaces it via provider.reload().
+  const refreshTimeoutMs = dependencies.setupRefreshTimeoutMs ?? SETUP_REFRESH_TIMEOUT_MS;
+  let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      refreshTask.then(
+        () => true,
+        () => false,
+      ),
+      new Promise<boolean>((resolve) => {
+        refreshTimer = setTimeout(() => resolve(false), refreshTimeoutMs);
+      }),
+    ]);
+  } finally {
+    if (refreshTimer !== undefined) clearTimeout(refreshTimer);
+  }
 
   return {
     catalog,
