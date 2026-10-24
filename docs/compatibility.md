@@ -138,8 +138,9 @@ Unrecorded CLI versions keep working under the warn policy; they appear here onl
 2. Append a snapshot entry: `bun run test/probes/msp-schema-diff.ts snapshot --export /tmp/opencode/muse-<version>-json --cli-version <version> --provenance <text>`, then add the printed JSON to `etc/msp-schema/snapshots.json`.
 3. Classify: `bun run test/probes/msp-schema-diff.ts diff --export /tmp/opencode/muse-<version>-json --ledger etc/msp-schema/snapshots.json --from-version <previous>`. Exit 0 means additive-only; exit 1 names the breaking change for human review — do not weaken the check to make it pass.
 4. Run the sanitized catalog probe and one minimal fixed-token text turn on each billing path in use; record exit status, token-match boolean, and billing path only.
-5. Record the version row above, the delta, and the probe outcomes; preserve older rows as history.
-6. An SDK bump is a separate, optionally-skipped step, justified only by a feature the plugin uses — never by the fingerprint alone. A skipped CLI version needs no action; classify it retroactively when its binary is still obtainable, otherwise mark it live-probe-only.
+5. Re-run the explicit-cut `session/fork` probe (`test/probes/msp-lifecycle.ts` with `MUSE_PROBE_PROVIDER=meta`); record the outcome. On success, scope #20 separately — do not fold the rewind/fork feature into the migration. On the known `file birth time is unavailable` failure, keep rewind/fork unimplemented.
+6. Record the version row above, the delta, and the probe outcomes; preserve older rows as history.
+7. An SDK bump is a separate, optionally-skipped step, justified only by a feature the plugin uses — never by the fingerprint alone. A skipped CLI version needs no action; classify it retroactively when its binary is still obtainable, otherwise mark it live-probe-only.
 
 ## Credential-Safety Record
 
